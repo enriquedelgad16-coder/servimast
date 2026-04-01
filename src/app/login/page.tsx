@@ -51,14 +51,14 @@ export default function LoginPage() {
           <div className="mb-8 flex justify-center">
             <Image
               src="/logo-servimast.jpg"
-              alt="SERVIMAST"
+              alt="SERVIMAST JPM"
               width={180}
               height={180}
               className="rounded-xl shadow-2xl"
               priority
             />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-3">SERVIMAST</h1>
+          <h1 className="text-3xl font-bold text-white mb-3">SERVIMAST JPM</h1>
           <p className="text-cyan-400 text-lg font-medium mb-2">
             Sistema de Seguridad y Redes
           </p>
@@ -78,13 +78,13 @@ export default function LoginPage() {
           <div className="lg:hidden flex flex-col items-center mb-8">
             <Image
               src="/logo-servimast.jpg"
-              alt="SERVIMAST"
+              alt="SERVIMAST JPM"
               width={100}
               height={100}
               className="rounded-xl shadow-lg mb-4"
               priority
             />
-            <h1 className="text-2xl font-bold text-navy-800">SERVIMAST</h1>
+            <h1 className="text-2xl font-bold text-navy-800">SERVIMAST JPM</h1>
           </div>
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
@@ -178,7 +178,7 @@ export default function LoginPage() {
           </div>
 
           <p className="text-center text-xs text-gray-400 mt-6">
-            SERVIMAST &copy; {new Date().getFullYear()} — Sistema de Nómina
+            SERVIMAST JPM &copy; {new Date().getFullYear()} — Sistema de Nómina
           </p>
         </div>
       </div>

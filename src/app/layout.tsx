@@ -9,8 +9,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "SERVIMAST — Sistema de Nómina",
-  description: "Sistema de Gestión de Nómina Quincenal - SERVIMAST Sistema de Seguridad y Redes",
+  title: "SERVIMAST JPM — Sistema de Nómina",
+  description: "Sistema de Gestión de Nómina Quincenal - SERVIMAST JPM Sistema de Seguridad y Redes",
 };
 
 export default function RootLayout({

@@ -195,11 +195,11 @@ export function ReportViewer({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/logo-servimast.jpg"
-              alt="SERVIMAST"
+              alt="SERVIMAST JPM"
               className="w-14 h-14 rounded-lg"
             />
             <div>
-              <h1 className="text-xl font-bold text-gray-900">SERVIMAST</h1>
+              <h1 className="text-xl font-bold text-gray-900">SERVIMAST JPM</h1>
               <p className="text-xs text-gray-600">
                 Sistema de Seguridad y Redes
               </p>
@@ -313,7 +313,7 @@ export function ReportViewer({
 
       {/* Print footer */}
       <div className="hidden print:block px-6 py-3 text-center text-[10px] text-gray-400 border-t border-gray-200">
-        SERVIMAST - Sistema de Gestión de Nómina | Impreso:{" "}
+        SERVIMAST JPM - Sistema de Gestión de Nómina | Impreso:{" "}
         {new Date().toLocaleString("es-DO")}
       </div>
     </div>

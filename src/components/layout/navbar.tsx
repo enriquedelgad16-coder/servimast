@@ -44,14 +44,14 @@ export function Navbar({ userName, userRole, onMenuToggle }: NavbarProps) {
           <div className="flex items-center gap-3">
             <Image
               src="/logo-servimast.jpg"
-              alt="SERVIMAST"
+              alt="SERVIMAST JPM"
               width={44}
               height={44}
               className="rounded-lg"
             />
             <div className="hidden sm:block">
               <h1 className="text-white font-bold text-lg leading-tight">
-                SERVIMAST
+                SERVIMAST JPM
               </h1>
               <p className="text-cyan-400 text-xs">Sistema de Gestión de Nómina</p>
             </div>

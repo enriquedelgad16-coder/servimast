@@ -124,7 +124,7 @@ export function PrestamoForm() {
       const headerX = logoImg ? 40 : 14;
       doc.setFontSize(18);
       doc.setFont("helvetica", "bold");
-      doc.text("SERVIMAST", headerX, 20);
+      doc.text("SERVIMAST JPM", headerX, 20);
       doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(100);
@@ -261,7 +261,7 @@ export function PrestamoForm() {
       doc.setFontSize(7);
       doc.setTextColor(150);
       doc.text(
-        "SERVIMAST - Sistema de Gestión de Nómina",
+        "SERVIMAST JPM - Sistema de Gestión de Nómina",
         pageWidth / 2,
         pageHeight - 8,
         { align: "center" }

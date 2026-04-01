@@ -1730,10 +1730,10 @@ async function buildReport(
           numero_empleado: emp?.numero_empleado || "",
           nombre: emp ? `${emp.nombre} ${emp.apellido}` : "",
           subtotal_devengado: ni.subtotal_devengado,
-          aporte_afp_empleado: ni.aporte_afp_empleado,
-          aporte_sfs_empleado: ni.aporte_sfs_empleado,
-          isr: ni.isr,
-          deduccion_prestamo: ni.deduccion_prestamo || 0,
+          afp_monto: ni.afp_monto,
+          sfs_monto: ni.sfs_monto,
+          isr_monto: ni.isr_monto,
+          deduccion_prestamos: ni.deduccion_prestamos || 0,
           total_deducciones: ni.total_deducciones,
           total_neto: ni.total_neto,
         };
@@ -1746,10 +1746,10 @@ async function buildReport(
           { key: "numero_empleado", label: "No. Emp" },
           { key: "nombre", label: "Nombre" },
           { key: "subtotal_devengado", label: "Devengado", align: "right" },
-          { key: "aporte_afp_empleado", label: "AFP", align: "right" },
-          { key: "aporte_sfs_empleado", label: "SFS", align: "right" },
-          { key: "isr", label: "ISR", align: "right" },
-          { key: "deduccion_prestamo", label: "Préstamo", align: "right" },
+          { key: "afp_monto", label: "AFP", align: "right" },
+          { key: "sfs_monto", label: "SFS", align: "right" },
+          { key: "isr_monto", label: "ISR", align: "right" },
+          { key: "deduccion_prestamos", label: "Préstamo", align: "right" },
           { key: "total_deducciones", label: "Total Ded.", align: "right" },
           { key: "total_neto", label: "Neto", align: "right" },
         ],
@@ -1757,10 +1757,10 @@ async function buildReport(
         totals: {
           nombre: `TOTAL (${rows.length})`,
           subtotal_devengado: sumF("subtotal_devengado"),
-          aporte_afp_empleado: sumF("aporte_afp_empleado"),
-          aporte_sfs_empleado: sumF("aporte_sfs_empleado"),
-          isr: sumF("isr"),
-          deduccion_prestamo: sumF("deduccion_prestamo"),
+          afp_monto: sumF("afp_monto"),
+          sfs_monto: sumF("sfs_monto"),
+          isr_monto: sumF("isr_monto"),
+          deduccion_prestamos: sumF("deduccion_prestamos"),
           total_deducciones: sumF("total_deducciones"),
           total_neto: sumF("total_neto"),
         },
@@ -1899,7 +1899,7 @@ async function buildReport(
 
       const { data: items, error } = await supabase
         .from("nomina_items")
-        .select("subtotal_devengado, total_deducciones, total_neto, aporte_afp_empleado, aporte_sfs_empleado, isr, deduccion_prestamo, horas_extras_diurnas, horas_extras_nocturnas, horas_extras_feriados")
+        .select("subtotal_devengado, total_deducciones, total_neto, afp_monto, sfs_monto, isr_monto, deduccion_prestamos, horas_extras_diurnas, horas_extras_nocturnas, horas_extras_feriados")
         .eq("quincena_id", filters.quincenaId);
       if (error) throw error;
 
@@ -1907,10 +1907,10 @@ async function buildReport(
       const totalDev = data.reduce((s, i) => s + (i.subtotal_devengado || 0), 0);
       const totalDed = data.reduce((s, i) => s + (i.total_deducciones || 0), 0);
       const totalNet = data.reduce((s, i) => s + (i.total_neto || 0), 0);
-      const totalAFP = data.reduce((s, i) => s + (i.aporte_afp_empleado || 0), 0);
-      const totalSFS = data.reduce((s, i) => s + (i.aporte_sfs_empleado || 0), 0);
-      const totalISR = data.reduce((s, i) => s + (i.isr || 0), 0);
-      const totalPrest = data.reduce((s, i) => s + (i.deduccion_prestamo || 0), 0);
+      const totalAFP = data.reduce((s, i) => s + (i.afp_monto || 0), 0);
+      const totalSFS = data.reduce((s, i) => s + (i.sfs_monto || 0), 0);
+      const totalISR = data.reduce((s, i) => s + (i.isr_monto || 0), 0);
+      const totalPrest = data.reduce((s, i) => s + (i.deduccion_prestamos || 0), 0);
       const totalHE = data.reduce(
         (s, i) =>
           s +
