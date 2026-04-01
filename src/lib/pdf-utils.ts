@@ -251,7 +251,8 @@ export async function generateSectionedNominaPDF({
     halign: "center" as const,
   };
 
-  const totalRowStyle = (hookData: { section: string; row: { index: number }; cell: { styles: Record<string, unknown> } }, dataLen: number) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const totalRowStyle = (hookData: any, dataLen: number) => {
     if (hookData.section === "body" && hookData.row.index === dataLen) {
       hookData.cell.styles.fillColor = [15, 30, 50];
       hookData.cell.styles.textColor = [255, 255, 255];
