@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@theme inline {
+  /* SERVIMAST Brand Colors */
+  --color-navy-900: #0A1628;
+  --color-navy-800: #0D1F3C;
+  --color-navy-700: #112A52;
+  --color-navy-600: #1A3A6B;
+  --color-cyan-500: #00B4D8;
+  --color-cyan-400: #00CFE8;
+  --color-cyan-300: #48E0F5;
+  --color-cyan-100: #E0F9FF;
+  --color-orange-500: #F97316;
+  --color-orange-600: #EA6A0A;
+  --color-orange-400: #FB923C;
+  --color-orange-100: #FFF0E6;
+  --color-success-600: #16A34A;
+  --color-success-100: #DCFCE7;
+  --color-warning-500: #EAB308;
+  --color-warning-100: #FEF9C3;
+  --color-danger-600: #DC2626;
+  --color-danger-100: #FEE2E2;
+  --color-info-500: #3B82F6;
+  --color-info-100: #DBEAFE;
+
+  --font-sans: var(--font-inter);
+}
+
+:root {
+  --background: #F3F4F6;
+  --foreground: #111827;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Focus ring consistent */
+*:focus-visible {
+  outline: 2px solid #00B4D8;
+  outline-offset: 2px;
+}
