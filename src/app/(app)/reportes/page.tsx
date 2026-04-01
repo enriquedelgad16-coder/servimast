@@ -1,18 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { formatCurrency, formatDate } from "@/lib/utils";
+import { ReportViewer } from "@/components/ui/report-viewer";
 import {
-  FileSpreadsheet,
-  Download,
   Users,
+  Building2,
   Calculator,
   Wallet,
-  Calendar,
   Shield,
-  Building2,
+  Calendar,
+  Clock,
+  FileBarChart,
+  TrendingUp,
+  ArrowLeft,
+  Search,
+  Eye,
+  Loader2,
+  BookOpen,
+  DollarSign,
+  BarChart3,
+  UserCheck,
+  Briefcase,
+  Phone,
+  Scale,
+  PieChart,
 } from "lucide-react";
-import * as XLSX from "xlsx";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface ReportDef {
   id: string;
@@ -20,264 +38,1970 @@ interface ReportDef {
   descripcion: string;
   icon: React.ReactNode;
   categoria: string;
+  filtros: FilterType[];
 }
 
+type FilterType =
+  | "quincena"
+  | "dateRange"
+  | "departamento"
+  | "empleado"
+  | "estado"
+  | "quincenaCompare";
+
+interface Quincena {
+  id: string;
+  periodo_inicio: string;
+  periodo_fin: string;
+  estado: string;
+  descripcion: string | null;
+  fecha_pago: string | null;
+}
+
+interface Empleado {
+  id: string;
+  nombre: string;
+  apellido: string;
+  numero_empleado: string;
+}
+
+interface Filters {
+  quincenaId: string;
+  quincenaCompareId: string;
+  fechaDesde: string;
+  fechaHasta: string;
+  departamento: string;
+  empleadoId: string;
+  estado: string;
+}
+
+interface ReportResult {
+  columns: { key: string; label: string; align?: "left" | "center" | "right" }[];
+  data: Record<string, unknown>[];
+  totals?: Record<string, unknown>;
+  subtitle?: string;
+  periodo?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers — Supabase returns joined relations as arrays; unwrap to single obj
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function unwrap<T>(val: any): T | null {
+  if (Array.isArray(val)) return (val[0] as T) ?? null;
+  return (val as T) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Report Catalog
+// ---------------------------------------------------------------------------
+
 const REPORTES: ReportDef[] = [
+  // ---- Empleados ----
   {
     id: "empleados_activos",
     nombre: "Empleados Activos",
     descripcion: "Lista completa de empleados activos con datos personales y laborales",
     icon: <Users className="h-5 w-5" />,
     categoria: "Empleados",
+    filtros: ["departamento"],
   },
   {
     id: "empleados_departamento",
     nombre: "Empleados por Departamento",
-    descripcion: "Empleados agrupados por departamento con cargo y sueldo",
+    descripcion: "Empleados agrupados por departamento con subtotales de sueldo",
     icon: <Building2 className="h-5 w-5" />,
     categoria: "Empleados",
+    filtros: ["departamento"],
   },
+  {
+    id: "directorio_empleados",
+    nombre: "Directorio de Empleados",
+    descripcion: "Información de contacto: teléfono, email, dirección",
+    icon: <Phone className="h-5 w-5" />,
+    categoria: "Empleados",
+    filtros: ["departamento"],
+  },
+  {
+    id: "empleados_tipo_contrato",
+    nombre: "Empleados por Tipo de Contrato",
+    descripcion: "Clasificación de empleados según tipo de contrato",
+    icon: <Briefcase className="h-5 w-5" />,
+    categoria: "Empleados",
+    filtros: [],
+  },
+  // ---- Nómina ----
   {
     id: "nomina_quincena",
     nombre: "Nómina por Quincena",
-    descripcion: "Detalle completo de nómina de una quincena seleccionada",
+    descripcion: "Detalle completo de nómina para una quincena seleccionada",
     icon: <Calculator className="h-5 w-5" />,
     categoria: "Nómina",
+    filtros: ["quincena", "departamento"],
   },
   {
-    id: "nomina_resumen_mensual",
-    nombre: "Resumen Mensual de Nómina",
-    descripcion: "Totales mensuales de devengado, deducciones y neto",
-    icon: <Calculator className="h-5 w-5" />,
+    id: "resumen_nominas_periodo",
+    nombre: "Resumen de Nóminas por Período",
+    descripcion: "Totales de devengado, deducciones y neto por cada quincena",
+    icon: <FileBarChart className="h-5 w-5" />,
     categoria: "Nómina",
+    filtros: ["dateRange"],
   },
+  {
+    id: "comparativo_nominas",
+    nombre: "Comparativo de Nóminas",
+    descripcion: "Comparación lado a lado de dos períodos de nómina",
+    icon: <BarChart3 className="h-5 w-5" />,
+    categoria: "Nómina",
+    filtros: ["quincena", "quincenaCompare"],
+  },
+  {
+    id: "horas_extra_periodo",
+    nombre: "Detalle de Horas Extra por Período",
+    descripcion: "Horas extra diurnas, nocturnas y feriados por empleado",
+    icon: <Clock className="h-5 w-5" />,
+    categoria: "Nómina",
+    filtros: ["quincena", "departamento"],
+  },
+  {
+    id: "historico_sueldos",
+    nombre: "Histórico de Sueldos por Empleado",
+    descripcion: "Evolución del sueldo neto a lo largo del tiempo",
+    icon: <TrendingUp className="h-5 w-5" />,
+    categoria: "Nómina",
+    filtros: ["empleado", "dateRange"],
+  },
+  // ---- Préstamos ----
   {
     id: "prestamos_activos",
     nombre: "Préstamos Activos",
-    descripcion: "Préstamos activos con saldos pendientes y cuotas",
+    descripcion: "Préstamos vigentes con saldo pendiente y cuotas",
     icon: <Wallet className="h-5 w-5" />,
     categoria: "Préstamos",
+    filtros: [],
   },
+  {
+    id: "historial_prestamos",
+    nombre: "Historial de Préstamos",
+    descripcion: "Todos los préstamos con estado y pagos realizados",
+    icon: <BookOpen className="h-5 w-5" />,
+    categoria: "Préstamos",
+    filtros: ["estado"],
+  },
+  {
+    id: "prestamos_empleado",
+    nombre: "Préstamos por Empleado",
+    descripcion: "Detalle de préstamos de un empleado específico",
+    icon: <UserCheck className="h-5 w-5" />,
+    categoria: "Préstamos",
+    filtros: ["empleado"],
+  },
+  // ---- Deducciones y TSS ----
   {
     id: "tss_mensual",
     nombre: "Reporte TSS Mensual",
-    descripcion: "Aportes AFP, SFS y SRL para Tesorería de Seguridad Social",
+    descripcion: "Aportes AFP, SFS y SRL (empleado + patronal) para la TSS",
     icon: <Shield className="h-5 w-5" />,
-    categoria: "TSS",
+    categoria: "Deducciones y TSS",
+    filtros: ["dateRange"],
   },
+  {
+    id: "costo_patronal",
+    nombre: "Costo Patronal por Período",
+    descripcion: "Total de contribuciones patronales AFP, SFS, SRL",
+    icon: <DollarSign className="h-5 w-5" />,
+    categoria: "Deducciones y TSS",
+    filtros: ["dateRange"],
+  },
+  {
+    id: "resumen_deducciones",
+    nombre: "Resumen de Deducciones",
+    descripcion: "Todas las deducciones por empleado en un período",
+    icon: <Scale className="h-5 w-5" />,
+    categoria: "Deducciones y TSS",
+    filtros: ["quincena"],
+  },
+  // ---- Vacaciones y Liquidaciones ----
   {
     id: "vacaciones_resumen",
     nombre: "Resumen de Vacaciones",
     descripcion: "Días acumulados, tomados y disponibles por empleado",
     icon: <Calendar className="h-5 w-5" />,
-    categoria: "Vacaciones",
+    categoria: "Vacaciones y Liquidaciones",
+    filtros: ["departamento"],
   },
   {
-    id: "costo_patronal",
-    nombre: "Costo Patronal Mensual",
-    descripcion: "Total de contribuciones patronales AFP, SFS, SRL por mes",
+    id: "liquidaciones_procesadas",
+    nombre: "Liquidaciones Procesadas",
+    descripcion: "Liquidaciones realizadas con montos desglosados",
+    icon: <FileBarChart className="h-5 w-5" />,
+    categoria: "Vacaciones y Liquidaciones",
+    filtros: ["dateRange"],
+  },
+  // ---- Resúmenes Gerenciales ----
+  {
+    id: "resumen_ejecutivo",
+    nombre: "Resumen Ejecutivo de Nómina",
+    descripcion: "Vista de alto nivel con totales y métricas clave",
+    icon: <PieChart className="h-5 w-5" />,
+    categoria: "Resúmenes Gerenciales",
+    filtros: ["quincena"],
+  },
+  {
+    id: "costo_total_empleado",
+    nombre: "Costo Total por Empleado",
+    descripcion: "Sueldo + aportes patronales + prestaciones por empleado",
+    icon: <DollarSign className="h-5 w-5" />,
+    categoria: "Resúmenes Gerenciales",
+    filtros: ["quincena"],
+  },
+  {
+    id: "gastos_departamento",
+    nombre: "Análisis de Gastos por Departamento",
+    descripcion: "Distribución de costos de nómina por departamento",
     icon: <Building2 className="h-5 w-5" />,
-    categoria: "TSS",
+    categoria: "Resúmenes Gerenciales",
+    filtros: ["quincena"],
   },
 ];
 
+const CATEGORIAS_ORDER = [
+  "Empleados",
+  "Nómina",
+  "Préstamos",
+  "Deducciones y TSS",
+  "Vacaciones y Liquidaciones",
+  "Resúmenes Gerenciales",
+];
+
+const CATEGORIA_ICONS: Record<string, React.ReactNode> = {
+  Empleados: <Users className="h-5 w-5" />,
+  "Nómina": <Calculator className="h-5 w-5" />,
+  "Préstamos": <Wallet className="h-5 w-5" />,
+  "Deducciones y TSS": <Shield className="h-5 w-5" />,
+  "Vacaciones y Liquidaciones": <Calendar className="h-5 w-5" />,
+  "Resúmenes Gerenciales": <TrendingUp className="h-5 w-5" />,
+};
+
+// ---------------------------------------------------------------------------
+// TSS rates (Dominican Republic 2024)
+// ---------------------------------------------------------------------------
+const TSS = {
+  AFP_EMPLEADO: 0.0287,
+  AFP_PATRONAL: 0.0710,
+  SFS_EMPLEADO: 0.0304,
+  SFS_PATRONAL: 0.0709,
+  SRL_PATRONAL: 0.011,
+};
+
+// ---------------------------------------------------------------------------
+// Main Component
+// ---------------------------------------------------------------------------
+
 export default function ReportesPage() {
-  const [generating, setGenerating] = useState<string | null>(null);
+  const [view, setView] = useState<"catalog" | "filters" | "preview">("catalog");
+  const [selectedReport, setSelectedReport] = useState<ReportDef | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  // Filter state
+  const [filters, setFilters] = useState<Filters>({
+    quincenaId: "",
+    quincenaCompareId: "",
+    fechaDesde: "",
+    fechaHasta: "",
+    departamento: "",
+    empleadoId: "",
+    estado: "",
+  });
+
+  // Dropdown data
+  const [quincenas, setQuincenas] = useState<Quincena[]>([]);
+  const [empleados, setEmpleados] = useState<Empleado[]>([]);
+  const [departamentos, setDepartamentos] = useState<string[]>([]);
+
+  // Report result
+  const [reportResult, setReportResult] = useState<ReportResult | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function generateReport(reportId: string) {
-    setGenerating(reportId);
+  // Load dropdown data when entering filter view
+  useEffect(() => {
+    if (view === "filters") {
+      loadDropdownData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+
+  async function loadDropdownData() {
+    const supabase = createClient();
+
+    const [qRes, eRes, dRes] = await Promise.all([
+      supabase
+        .from("quincenas")
+        .select("id, periodo_inicio, periodo_fin, estado, descripcion, fecha_pago")
+        .order("periodo_inicio", { ascending: false }),
+      supabase
+        .from("empleados")
+        .select("id, nombre, apellido, numero_empleado")
+        .eq("estado", "activo")
+        .order("apellido"),
+      supabase
+        .from("empleados")
+        .select("departamento")
+        .eq("estado", "activo")
+        .not("departamento", "is", null),
+    ]);
+
+    if (qRes.data) setQuincenas(qRes.data);
+    if (eRes.data) setEmpleados(eRes.data);
+    if (dRes.data) {
+      const depts = [
+        ...new Set(
+          dRes.data
+            .map((d) => d.departamento as string)
+            .filter(Boolean)
+        ),
+      ].sort();
+      setDepartamentos(depts);
+    }
+  }
+
+  function handleSelectReport(report: ReportDef) {
+    setSelectedReport(report);
+    setError(null);
+    setReportResult(null);
+    setFilters({
+      quincenaId: "",
+      quincenaCompareId: "",
+      fechaDesde: "",
+      fechaHasta: "",
+      departamento: "",
+      empleadoId: "",
+      estado: "",
+    });
+    if (report.filtros.length === 0) {
+      // No filters needed, generate immediately
+      setView("filters");
+    } else {
+      setView("filters");
+    }
+  }
+
+  function handleBack() {
+    if (view === "preview") {
+      setView("filters");
+      setReportResult(null);
+    } else {
+      setView("catalog");
+      setSelectedReport(null);
+    }
+  }
+
+  // ---------- Report generation ----------
+
+  const generateReport = useCallback(async () => {
+    if (!selectedReport) return;
+    setLoading(true);
     setError(null);
 
     try {
       const supabase = createClient();
-      let data: Record<string, unknown>[] = [];
-      let filename = reportId;
-
-      switch (reportId) {
-        case "empleados_activos": {
-          const { data: emps, error: e } = await supabase
-            .from("empleados")
-            .select("*")
-            .eq("estado", "activo")
-            .order("apellido");
-          if (e) throw e;
-          data = (emps || []).map((emp) => ({
-            "No. Empleado": emp.numero_empleado,
-            "Cédula": emp.cedula,
-            "Nombre": emp.nombre,
-            "Apellido": emp.apellido,
-            "Cargo": emp.cargo || "",
-            "Departamento": emp.departamento || "",
-            "Fecha Ingreso": emp.fecha_ingreso,
-            "Tipo Contrato": emp.tipo_contrato,
-            "Sueldo Quincenal": emp.sueldo_quincenal,
-            "Banco": emp.banco || "",
-            "No. Cuenta": emp.numero_cuenta || "",
-            "NSS": emp.nss || "",
-            "Email": emp.email || "",
-            "Tel. Trabajo": emp.telefono_trabajo || "",
-            "Tel. Personal": emp.telefono_personal || "",
-          }));
-          filename = "Empleados_Activos";
-          break;
-        }
-        case "empleados_departamento": {
-          const { data: emps, error: e } = await supabase
-            .from("empleados")
-            .select("*")
-            .eq("estado", "activo")
-            .order("departamento")
-            .order("apellido");
-          if (e) throw e;
-          data = (emps || []).map((emp) => ({
-            "Departamento": emp.departamento || "Sin departamento",
-            "No. Empleado": emp.numero_empleado,
-            "Nombre": `${emp.nombre} ${emp.apellido}`,
-            "Cargo": emp.cargo || "",
-            "Sueldo Quincenal": emp.sueldo_quincenal,
-            "Fecha Ingreso": emp.fecha_ingreso,
-          }));
-          filename = "Empleados_por_Departamento";
-          break;
-        }
-        case "prestamos_activos": {
-          const { data: prests, error: e } = await supabase
-            .from("prestamos")
-            .select("*, empleado:empleados(nombre, apellido, numero_empleado)")
-            .eq("estado", "activo")
-            .order("created_at", { ascending: false });
-          if (e) throw e;
-          data = (prests || []).map((p) => {
-            const emp = p.empleado as { nombre: string; apellido: string; numero_empleado: string } | null;
-            return {
-              "Empleado": emp ? `${emp.nombre} ${emp.apellido}` : "",
-              "No. Empleado": emp?.numero_empleado || "",
-              "Monto Total": p.monto_total,
-              "Cuota Quincenal": p.cuota_quincenal,
-              "Saldo Pendiente": p.saldo_pendiente,
-              "Cuotas Pagadas": p.numero_cuotas_pagadas,
-              "Cuotas Estimadas": p.numero_cuotas_estimado || "",
-              "Fecha Inicio": p.fecha_inicio,
-            };
-          });
-          filename = "Prestamos_Activos";
-          break;
-        }
-        case "vacaciones_resumen": {
-          const { data: emps, error: e } = await supabase
-            .from("empleados")
-            .select("*")
-            .eq("estado", "activo")
-            .order("apellido");
-          if (e) throw e;
-          data = (emps || []).map((emp) => ({
-            "No. Empleado": emp.numero_empleado,
-            "Nombre": `${emp.nombre} ${emp.apellido}`,
-            "Fecha Ingreso": emp.fecha_ingreso,
-            "Días Acumulados": emp.dias_vacaciones_acumulados,
-            "Días Tomados": emp.dias_vacaciones_tomados,
-            "Días Disponibles":
-              emp.dias_vacaciones_acumulados - emp.dias_vacaciones_tomados,
-          }));
-          filename = "Vacaciones_Resumen";
-          break;
-        }
-        default: {
-          setError("Reporte aún no implementado. Próximamente disponible.");
-          setGenerating(null);
-          return;
-        }
-      }
-
-      if (data.length === 0) {
-        setError("No hay datos para generar este reporte.");
-        setGenerating(null);
-        return;
-      }
-
-      const ws = XLSX.utils.json_to_sheet(data);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Reporte");
-
-      const colWidths = Object.keys(data[0]).map((key) => ({
-        wch: Math.max(
-          key.length,
-          ...data.map((row) => String(row[key] ?? "").length)
-        ),
-      }));
-      ws["!cols"] = colWidths;
-
-      const today = new Date().toISOString().split("T")[0];
-      XLSX.writeFile(wb, `${filename}_${today}.xlsx`);
+      const result = await buildReport(supabase, selectedReport.id, filters);
+      setReportResult(result);
+      setView("preview");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Error al generar reporte");
+      setError(err instanceof Error ? err.message : "Error al generar el reporte");
     } finally {
-      setGenerating(null);
+      setLoading(false);
     }
+  }, [selectedReport, filters]);
+
+  // Filter the catalog by search term
+  const filteredReportes = useMemo(() => {
+    if (!searchTerm.trim()) return REPORTES;
+    const term = searchTerm.toLowerCase();
+    return REPORTES.filter(
+      (r) =>
+        r.nombre.toLowerCase().includes(term) ||
+        r.descripcion.toLowerCase().includes(term) ||
+        r.categoria.toLowerCase().includes(term)
+    );
+  }, [searchTerm]);
+
+  // ---------- Render ----------
+
+  if (view === "preview" && reportResult && selectedReport) {
+    return (
+      <div>
+        <button
+          onClick={handleBack}
+          className="mb-4 inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Volver a filtros
+        </button>
+        <ReportViewer
+          title={selectedReport.nombre}
+          subtitle={reportResult.subtitle}
+          periodo={reportResult.periodo}
+          columns={reportResult.columns}
+          data={reportResult.data}
+          totals={reportResult.totals}
+          onClose={handleBack}
+        />
+      </div>
+    );
   }
 
-  const categorias = [...new Set(REPORTES.map((r) => r.categoria))];
+  if (view === "filters" && selectedReport) {
+    return (
+      <div>
+        <button
+          onClick={handleBack}
+          className="mb-4 inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Volver al catálogo
+        </button>
 
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 max-w-2xl">
+          <div className="flex items-start gap-3 mb-6">
+            <div className="p-2.5 bg-cyan-50 rounded-lg text-cyan-600">
+              {selectedReport.icon}
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">{selectedReport.nombre}</h2>
+              <p className="text-sm text-gray-500">{selectedReport.descripcion}</p>
+            </div>
+          </div>
+
+          {error && (
+            <div className="mb-4 bg-red-50 text-red-600 text-sm p-3 rounded-lg border border-red-200">
+              {error}
+            </div>
+          )}
+
+          {selectedReport.filtros.length > 0 && (
+            <div className="space-y-4 mb-6">
+              <h3 className="text-sm font-semibold text-gray-700 border-b border-gray-100 pb-2">
+                Filtros del Reporte
+              </h3>
+
+              {/* Quincena selector */}
+              {selectedReport.filtros.includes("quincena") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Quincena {selectedReport.filtros.includes("quincenaCompare") ? "(Período A)" : ""}
+                  </label>
+                  <select
+                    value={filters.quincenaId}
+                    onChange={(e) =>
+                      setFilters((f) => ({ ...f, quincenaId: e.target.value }))
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  >
+                    <option value="">Seleccionar quincena...</option>
+                    {quincenas.map((q) => (
+                      <option key={q.id} value={q.id}>
+                        {q.descripcion || `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}`}
+                        {q.estado === "cerrada" ? " (Cerrada)" : q.estado === "pagada" ? " (Pagada)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Quincena compare selector */}
+              {selectedReport.filtros.includes("quincenaCompare") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Quincena (Período B)
+                  </label>
+                  <select
+                    value={filters.quincenaCompareId}
+                    onChange={(e) =>
+                      setFilters((f) => ({ ...f, quincenaCompareId: e.target.value }))
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  >
+                    <option value="">Seleccionar quincena para comparar...</option>
+                    {quincenas.map((q) => (
+                      <option key={q.id} value={q.id}>
+                        {q.descripcion || `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}`}
+                        {q.estado === "cerrada" ? " (Cerrada)" : q.estado === "pagada" ? " (Pagada)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Date range */}
+              {selectedReport.filtros.includes("dateRange") && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Desde
+                    </label>
+                    <input
+                      type="date"
+                      value={filters.fechaDesde}
+                      onChange={(e) =>
+                        setFilters((f) => ({ ...f, fechaDesde: e.target.value }))
+                      }
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Hasta
+                    </label>
+                    <input
+                      type="date"
+                      value={filters.fechaHasta}
+                      onChange={(e) =>
+                        setFilters((f) => ({ ...f, fechaHasta: e.target.value }))
+                      }
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Departamento */}
+              {selectedReport.filtros.includes("departamento") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Departamento
+                  </label>
+                  <select
+                    value={filters.departamento}
+                    onChange={(e) =>
+                      setFilters((f) => ({ ...f, departamento: e.target.value }))
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  >
+                    <option value="">Todos los departamentos</option>
+                    {departamentos.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Empleado */}
+              {selectedReport.filtros.includes("empleado") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Empleado
+                  </label>
+                  <select
+                    value={filters.empleadoId}
+                    onChange={(e) =>
+                      setFilters((f) => ({ ...f, empleadoId: e.target.value }))
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  >
+                    <option value="">Seleccionar empleado...</option>
+                    {empleados.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.numero_empleado} - {emp.apellido}, {emp.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Estado (for loans) */}
+              {selectedReport.filtros.includes("estado") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Estado
+                  </label>
+                  <select
+                    value={filters.estado}
+                    onChange={(e) =>
+                      setFilters((f) => ({ ...f, estado: e.target.value }))
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  >
+                    <option value="">Todos</option>
+                    <option value="activo">Activo</option>
+                    <option value="pagado">Pagado</option>
+                    <option value="cancelado">Cancelado</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+
+          {selectedReport.filtros.length === 0 && (
+            <p className="text-sm text-gray-500 mb-6">
+              Este reporte no requiere filtros adicionales.
+            </p>
+          )}
+
+          <button
+            onClick={generateReport}
+            disabled={loading}
+            className="w-full inline-flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors disabled:opacity-50 text-sm"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Generando reporte...
+              </>
+            ) : (
+              <>
+                <Eye className="h-4 w-4" />
+                Vista Previa
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- Catalog View ----------
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Reportes</h1>
         <p className="text-gray-500 text-sm mt-1">
-          Genera y descarga reportes en formato Excel
+          Genera reportes con vista previa, exportación a PDF, Excel e impresión
         </p>
       </div>
 
-      {error && (
-        <div className="mb-6 bg-red-50 text-red-600 text-sm p-4 rounded-lg border border-red-200">
-          {error}
+      {/* Search */}
+      <div className="mb-6 relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Buscar reporte..."
+          className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl bg-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+        />
+      </div>
+
+      {CATEGORIAS_ORDER.map((cat) => {
+        const reportesInCat = filteredReportes.filter((r) => r.categoria === cat);
+        if (reportesInCat.length === 0) return null;
+
+        return (
+          <div key={cat} className="mb-8">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-cyan-600">{CATEGORIA_ICONS[cat]}</span>
+              <h2 className="text-lg font-semibold text-gray-700">{cat}</h2>
+              <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                {reportesInCat.length}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {reportesInCat.map((reporte) => (
+                <button
+                  key={reporte.id}
+                  onClick={() => handleSelectReport(reporte)}
+                  className="text-left bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md hover:border-cyan-200 transition-all group"
+                >
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="p-2 bg-cyan-50 rounded-lg text-cyan-600 group-hover:bg-cyan-100 transition-colors">
+                      {reporte.icon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900 text-sm">
+                        {reporte.nombre}
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                        {reporte.descripcion}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-orange-500 font-medium group-hover:text-orange-600 transition-colors">
+                    <Eye className="h-3.5 w-3.5" />
+                    Ver reporte
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+
+      {filteredReportes.length === 0 && (
+        <div className="text-center py-16 text-gray-400">
+          <Search className="h-10 w-10 mx-auto mb-3 text-gray-300" />
+          <p className="text-sm">No se encontraron reportes que coincidan con la búsqueda.</p>
         </div>
       )}
-
-      {categorias.map((cat) => (
-        <div key={cat} className="mb-8">
-          <h2 className="text-lg font-semibold text-gray-700 mb-3">{cat}</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {REPORTES.filter((r) => r.categoria === cat).map((reporte) => (
-              <div
-                key={reporte.id}
-                className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-start gap-3 mb-3">
-                  <div className="p-2 bg-cyan-50 rounded-lg text-cyan-600">
-                    {reporte.icon}
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900 text-sm">
-                      {reporte.nombre}
-                    </h3>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {reporte.descripcion}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => generateReport(reporte.id)}
-                  disabled={generating === reporte.id}
-                  className="w-full inline-flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50 text-sm"
-                >
-                  {generating === reporte.id ? (
-                    <>
-                      <FileSpreadsheet className="h-4 w-4 animate-pulse" />
-                      Generando...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="h-4 w-4" />
-                      Descargar Excel
-                    </>
-                  )}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Report Builder
+// ---------------------------------------------------------------------------
+
+async function buildReport(
+  supabase: ReturnType<typeof createClient>,
+  reportId: string,
+  filters: Filters
+): Promise<ReportResult> {
+  switch (reportId) {
+    // =====================================================================
+    // EMPLEADOS
+    // =====================================================================
+    case "empleados_activos": {
+      let query = supabase
+        .from("empleados")
+        .select("*")
+        .eq("estado", "activo")
+        .order("apellido");
+      if (filters.departamento)
+        query = query.eq("departamento", filters.departamento);
+
+      const { data: emps, error } = await query;
+      if (error) throw error;
+      const rows = (emps || []).map((e) => ({
+        numero_empleado: e.numero_empleado,
+        cedula: e.cedula,
+        nombre: `${e.nombre} ${e.apellido}`,
+        cargo: e.cargo || "",
+        departamento: e.departamento || "",
+        tipo_contrato: e.tipo_contrato || "",
+        fecha_ingreso: e.fecha_ingreso ? formatDate(e.fecha_ingreso) : "",
+        sueldo_quincenal: e.sueldo_quincenal,
+        banco: e.banco || "",
+        numero_cuenta: e.numero_cuenta || "",
+        nss: e.nss || "",
+      }));
+      const totalSueldo = rows.reduce(
+        (s, r) => s + ((r.sueldo_quincenal as number) || 0),
+        0
+      );
+      return {
+        columns: [
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "cedula", label: "Cédula" },
+          { key: "nombre", label: "Nombre" },
+          { key: "cargo", label: "Cargo" },
+          { key: "departamento", label: "Depto." },
+          { key: "tipo_contrato", label: "Contrato" },
+          { key: "fecha_ingreso", label: "Ingreso" },
+          { key: "sueldo_quincenal", label: "Sueldo Quinc.", align: "right" },
+          { key: "banco", label: "Banco" },
+          { key: "numero_cuenta", label: "No. Cuenta" },
+          { key: "nss", label: "NSS" },
+        ],
+        data: rows,
+        totals: {
+          nombre: `TOTAL (${rows.length} empleados)`,
+          sueldo_quincenal: totalSueldo,
+        },
+        subtitle: filters.departamento
+          ? `Departamento: ${filters.departamento}`
+          : "Todos los departamentos",
+      };
+    }
+
+    case "empleados_departamento": {
+      let query = supabase
+        .from("empleados")
+        .select("*")
+        .eq("estado", "activo")
+        .order("departamento")
+        .order("apellido");
+      if (filters.departamento)
+        query = query.eq("departamento", filters.departamento);
+
+      const { data: emps, error } = await query;
+      if (error) throw error;
+
+      const rows = (emps || []).map((e) => ({
+        departamento: e.departamento || "Sin departamento",
+        numero_empleado: e.numero_empleado,
+        nombre: `${e.nombre} ${e.apellido}`,
+        cargo: e.cargo || "",
+        sueldo_quincenal: e.sueldo_quincenal,
+        fecha_ingreso: e.fecha_ingreso ? formatDate(e.fecha_ingreso) : "",
+      }));
+      const totalSueldo = rows.reduce(
+        (s, r) => s + ((r.sueldo_quincenal as number) || 0),
+        0
+      );
+      return {
+        columns: [
+          { key: "departamento", label: "Departamento" },
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "nombre", label: "Nombre" },
+          { key: "cargo", label: "Cargo" },
+          { key: "sueldo_quincenal", label: "Sueldo Quinc.", align: "right" },
+          { key: "fecha_ingreso", label: "Ingreso" },
+        ],
+        data: rows,
+        totals: {
+          departamento: `TOTAL (${rows.length} empleados)`,
+          sueldo_quincenal: totalSueldo,
+        },
+      };
+    }
+
+    case "directorio_empleados": {
+      let query = supabase
+        .from("empleados")
+        .select("*")
+        .eq("estado", "activo")
+        .order("apellido");
+      if (filters.departamento)
+        query = query.eq("departamento", filters.departamento);
+
+      const { data: emps, error } = await query;
+      if (error) throw error;
+
+      const rows = (emps || []).map((e) => ({
+        numero_empleado: e.numero_empleado,
+        nombre: `${e.nombre} ${e.apellido}`,
+        cargo: e.cargo || "",
+        departamento: e.departamento || "",
+        email: e.email || "",
+        telefono_trabajo: e.telefono_trabajo || "",
+        telefono_personal: e.telefono_personal || "",
+      }));
+      return {
+        columns: [
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "nombre", label: "Nombre" },
+          { key: "cargo", label: "Cargo" },
+          { key: "departamento", label: "Depto." },
+          { key: "email", label: "Email" },
+          { key: "telefono_trabajo", label: "Tel. Trabajo" },
+          { key: "telefono_personal", label: "Tel. Personal" },
+        ],
+        data: rows,
+        subtitle: "Directorio de Contacto",
+      };
+    }
+
+    case "empleados_tipo_contrato": {
+      const { data: emps, error } = await supabase
+        .from("empleados")
+        .select("*")
+        .eq("estado", "activo")
+        .order("tipo_contrato")
+        .order("apellido");
+      if (error) throw error;
+
+      const rows = (emps || []).map((e) => ({
+        tipo_contrato: e.tipo_contrato || "Sin especificar",
+        numero_empleado: e.numero_empleado,
+        nombre: `${e.nombre} ${e.apellido}`,
+        cargo: e.cargo || "",
+        departamento: e.departamento || "",
+        fecha_ingreso: e.fecha_ingreso ? formatDate(e.fecha_ingreso) : "",
+        sueldo_quincenal: e.sueldo_quincenal,
+      }));
+      const totalSueldo = rows.reduce(
+        (s, r) => s + ((r.sueldo_quincenal as number) || 0),
+        0
+      );
+      return {
+        columns: [
+          { key: "tipo_contrato", label: "Tipo Contrato" },
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "nombre", label: "Nombre" },
+          { key: "cargo", label: "Cargo" },
+          { key: "departamento", label: "Depto." },
+          { key: "fecha_ingreso", label: "Ingreso" },
+          { key: "sueldo_quincenal", label: "Sueldo Quinc.", align: "right" },
+        ],
+        data: rows,
+        totals: {
+          tipo_contrato: `TOTAL (${rows.length})`,
+          sueldo_quincenal: totalSueldo,
+        },
+      };
+    }
+
+    // =====================================================================
+    // NOMINA
+    // =====================================================================
+    case "nomina_quincena": {
+      if (!filters.quincenaId) throw new Error("Seleccione una quincena");
+
+      const { data: q } = await supabase
+        .from("quincenas")
+        .select("*")
+        .eq("id", filters.quincenaId)
+        .single();
+
+      let query = supabase
+        .from("nomina_items")
+        .select("*, empleado:empleados(nombre, apellido, numero_empleado, departamento, cargo)")
+        .eq("quincena_id", filters.quincenaId);
+
+      const { data: items, error } = await query;
+      if (error) throw error;
+
+      let rows = (items || []).map((ni) => {
+        const emp = unwrap<{
+          nombre: string;
+          apellido: string;
+          numero_empleado: string;
+          departamento: string | null;
+          cargo: string | null;
+        }>(ni.empleado);
+        return {
+          numero_empleado: emp?.numero_empleado || "",
+          nombre: emp ? `${emp.nombre} ${emp.apellido}` : "",
+          departamento: emp?.departamento || "",
+          horas_base: ni.horas_base,
+          horas_extras_diurnas: ni.horas_extras_diurnas || 0,
+          horas_extras_nocturnas: ni.horas_extras_nocturnas || 0,
+          horas_extras_feriados: ni.horas_extras_feriados || 0,
+          subtotal_devengado: ni.subtotal_devengado,
+          aporte_afp_empleado: ni.aporte_afp_empleado,
+          aporte_sfs_empleado: ni.aporte_sfs_empleado,
+          isr: ni.isr,
+          deduccion_prestamo: ni.deduccion_prestamo || 0,
+          total_deducciones: ni.total_deducciones,
+          total_neto: ni.total_neto,
+        };
+      });
+
+      if (filters.departamento) {
+        rows = rows.filter((r) => r.departamento === filters.departamento);
+      }
+
+      const sumField = (field: string) =>
+        rows.reduce((s, r) => s + (Number((r as Record<string, unknown>)[field]) || 0), 0);
+
+      return {
+        columns: [
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "nombre", label: "Nombre" },
+          { key: "departamento", label: "Depto." },
+          { key: "horas_base", label: "Hrs Base", align: "right" },
+          { key: "horas_extras_diurnas", label: "HE Diur.", align: "right" },
+          { key: "horas_extras_nocturnas", label: "HE Noct.", align: "right" },
+          { key: "horas_extras_feriados", label: "HE Fer.", align: "right" },
+          { key: "subtotal_devengado", label: "Devengado", align: "right" },
+          { key: "aporte_afp_empleado", label: "AFP", align: "right" },
+          { key: "aporte_sfs_empleado", label: "SFS", align: "right" },
+          { key: "isr", label: "ISR", align: "right" },
+          { key: "deduccion_prestamo", label: "Préstamo", align: "right" },
+          { key: "total_deducciones", label: "Deducciones", align: "right" },
+          { key: "total_neto", label: "Neto", align: "right" },
+        ],
+        data: rows,
+        totals: {
+          nombre: `TOTAL (${rows.length})`,
+          subtotal_devengado: sumField("subtotal_devengado"),
+          aporte_afp_empleado: sumField("aporte_afp_empleado"),
+          aporte_sfs_empleado: sumField("aporte_sfs_empleado"),
+          isr: sumField("isr"),
+          deduccion_prestamo: sumField("deduccion_prestamo"),
+          total_deducciones: sumField("total_deducciones"),
+          total_neto: sumField("total_neto"),
+        },
+        periodo: q
+          ? `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}`
+          : "",
+        subtitle: q?.descripcion || undefined,
+      };
+    }
+
+    case "resumen_nominas_periodo": {
+      let query = supabase
+        .from("quincenas")
+        .select("id, periodo_inicio, periodo_fin, estado, descripcion, fecha_pago")
+        .order("periodo_inicio", { ascending: true });
+
+      if (filters.fechaDesde) query = query.gte("periodo_inicio", filters.fechaDesde);
+      if (filters.fechaHasta) query = query.lte("periodo_fin", filters.fechaHasta);
+
+      const { data: qs, error: qErr } = await query;
+      if (qErr) throw qErr;
+
+      if (!qs || qs.length === 0) throw new Error("No hay quincenas en el período seleccionado");
+
+      const results: Record<string, unknown>[] = [];
+      for (const q of qs) {
+        const { data: items } = await supabase
+          .from("nomina_items")
+          .select("subtotal_devengado, total_deducciones, total_neto")
+          .eq("quincena_id", q.id);
+
+        const totalDev = (items || []).reduce((s, i) => s + (i.subtotal_devengado || 0), 0);
+        const totalDed = (items || []).reduce((s, i) => s + (i.total_deducciones || 0), 0);
+        const totalNet = (items || []).reduce((s, i) => s + (i.total_neto || 0), 0);
+        const count = (items || []).length;
+
+        results.push({
+          periodo: `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}`,
+          descripcion: q.descripcion || "",
+          estado: q.estado,
+          empleados: count,
+          total_devengado: totalDev,
+          total_deducciones: totalDed,
+          total_neto: totalNet,
+        });
+      }
+
+      const grandDev = results.reduce((s, r) => s + (Number(r.total_devengado) || 0), 0);
+      const grandDed = results.reduce((s, r) => s + (Number(r.total_deducciones) || 0), 0);
+      const grandNet = results.reduce((s, r) => s + (Number(r.total_neto) || 0), 0);
+
+      return {
+        columns: [
+          { key: "periodo", label: "Período" },
+          { key: "descripcion", label: "Descripción" },
+          { key: "estado", label: "Estado", align: "center" },
+          { key: "empleados", label: "Empleados", align: "right" },
+          { key: "total_devengado", label: "Devengado", align: "right" },
+          { key: "total_deducciones", label: "Deducciones", align: "right" },
+          { key: "total_neto", label: "Neto", align: "right" },
+        ],
+        data: results,
+        totals: {
+          periodo: `TOTAL (${results.length} quincenas)`,
+          total_devengado: grandDev,
+          total_deducciones: grandDed,
+          total_neto: grandNet,
+        },
+        periodo: filters.fechaDesde && filters.fechaHasta
+          ? `${formatDate(filters.fechaDesde)} - ${formatDate(filters.fechaHasta)}`
+          : "Todas las quincenas",
+      };
+    }
+
+    case "comparativo_nominas": {
+      if (!filters.quincenaId || !filters.quincenaCompareId)
+        throw new Error("Seleccione ambas quincenas para comparar");
+
+      const [qA, qB] = await Promise.all([
+        supabase.from("quincenas").select("*").eq("id", filters.quincenaId).single(),
+        supabase.from("quincenas").select("*").eq("id", filters.quincenaCompareId).single(),
+      ]);
+
+      const [itemsA, itemsB] = await Promise.all([
+        supabase
+          .from("nomina_items")
+          .select("empleado_id, subtotal_devengado, total_deducciones, total_neto, empleado:empleados(nombre, apellido, numero_empleado)")
+          .eq("quincena_id", filters.quincenaId),
+        supabase
+          .from("nomina_items")
+          .select("empleado_id, subtotal_devengado, total_deducciones, total_neto, empleado:empleados(nombre, apellido, numero_empleado)")
+          .eq("quincena_id", filters.quincenaCompareId),
+      ]);
+
+      const mapA = new Map<string, { dev: number; ded: number; net: number }>();
+      const mapB = new Map<string, { dev: number; ded: number; net: number }>();
+      const empNames = new Map<string, { nombre: string; num: string }>();
+
+      for (const it of itemsA.data || []) {
+        mapA.set(it.empleado_id, {
+          dev: it.subtotal_devengado || 0,
+          ded: it.total_deducciones || 0,
+          net: it.total_neto || 0,
+        });
+        const emp = unwrap<{ nombre: string; apellido: string; numero_empleado: string }>(it.empleado);
+        if (emp) empNames.set(it.empleado_id, { nombre: `${emp.nombre} ${emp.apellido}`, num: emp.numero_empleado });
+      }
+      for (const it of itemsB.data || []) {
+        mapB.set(it.empleado_id, {
+          dev: it.subtotal_devengado || 0,
+          ded: it.total_deducciones || 0,
+          net: it.total_neto || 0,
+        });
+        const emp = unwrap<{ nombre: string; apellido: string; numero_empleado: string }>(it.empleado);
+        if (emp && !empNames.has(it.empleado_id))
+          empNames.set(it.empleado_id, { nombre: `${emp.nombre} ${emp.apellido}`, num: emp.numero_empleado });
+      }
+
+      const allIds = [...new Set([...mapA.keys(), ...mapB.keys()])];
+      const rows = allIds.map((id) => {
+        const a = mapA.get(id) || { dev: 0, ded: 0, net: 0 };
+        const b = mapB.get(id) || { dev: 0, ded: 0, net: 0 };
+        const info = empNames.get(id);
+        return {
+          numero_empleado: info?.num || "",
+          nombre: info?.nombre || "",
+          dev_a: a.dev,
+          dev_b: b.dev,
+          diff_dev: a.dev - b.dev,
+          net_a: a.net,
+          net_b: b.net,
+          diff_net: a.net - b.net,
+        };
+      });
+
+      const labelA = qA.data?.descripcion || "Período A";
+      const labelB = qB.data?.descripcion || "Período B";
+
+      return {
+        columns: [
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "nombre", label: "Nombre" },
+          { key: "dev_a", label: `Dev. ${labelA}`, align: "right" },
+          { key: "dev_b", label: `Dev. ${labelB}`, align: "right" },
+          { key: "diff_dev", label: "Dif. Dev.", align: "right" },
+          { key: "net_a", label: `Neto ${labelA}`, align: "right" },
+          { key: "net_b", label: `Neto ${labelB}`, align: "right" },
+          { key: "diff_net", label: "Dif. Neto", align: "right" },
+        ],
+        data: rows,
+        totals: {
+          nombre: "TOTAL",
+          dev_a: rows.reduce((s, r) => s + r.dev_a, 0),
+          dev_b: rows.reduce((s, r) => s + r.dev_b, 0),
+          diff_dev: rows.reduce((s, r) => s + r.diff_dev, 0),
+          net_a: rows.reduce((s, r) => s + r.net_a, 0),
+          net_b: rows.reduce((s, r) => s + r.net_b, 0),
+          diff_net: rows.reduce((s, r) => s + r.diff_net, 0),
+        },
+        subtitle: `${labelA} vs ${labelB}`,
+      };
+    }
+
+    case "horas_extra_periodo": {
+      if (!filters.quincenaId) throw new Error("Seleccione una quincena");
+
+      const { data: q } = await supabase
+        .from("quincenas")
+        .select("*")
+        .eq("id", filters.quincenaId)
+        .single();
+
+      const { data: items, error } = await supabase
+        .from("nomina_items")
+        .select("*, empleado:empleados(nombre, apellido, numero_empleado, departamento)")
+        .eq("quincena_id", filters.quincenaId);
+      if (error) throw error;
+
+      let rows = (items || [])
+        .filter(
+          (ni) =>
+            (ni.horas_extras_diurnas || 0) > 0 ||
+            (ni.horas_extras_nocturnas || 0) > 0 ||
+            (ni.horas_extras_feriados || 0) > 0
+        )
+        .map((ni) => {
+          const emp = unwrap<{
+            nombre: string;
+            apellido: string;
+            numero_empleado: string;
+            departamento: string | null;
+          }>(ni.empleado);
+          const hed = ni.horas_extras_diurnas || 0;
+          const hen = ni.horas_extras_nocturnas || 0;
+          const hef = ni.horas_extras_feriados || 0;
+          return {
+            numero_empleado: emp?.numero_empleado || "",
+            nombre: emp ? `${emp.nombre} ${emp.apellido}` : "",
+            departamento: emp?.departamento || "",
+            horas_extras_diurnas: hed,
+            horas_extras_nocturnas: hen,
+            horas_extras_feriados: hef,
+            total_horas_extra: hed + hen + hef,
+          };
+        });
+
+      if (filters.departamento) {
+        rows = rows.filter((r) => r.departamento === filters.departamento);
+      }
+
+      return {
+        columns: [
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "nombre", label: "Nombre" },
+          { key: "departamento", label: "Depto." },
+          { key: "horas_extras_diurnas", label: "HE Diurnas", align: "right" },
+          { key: "horas_extras_nocturnas", label: "HE Nocturnas", align: "right" },
+          { key: "horas_extras_feriados", label: "HE Feriados", align: "right" },
+          { key: "total_horas_extra", label: "Total HE", align: "right" },
+        ],
+        data: rows,
+        totals: {
+          nombre: `TOTAL (${rows.length})`,
+          horas_extras_diurnas: rows.reduce((s, r) => s + r.horas_extras_diurnas, 0),
+          horas_extras_nocturnas: rows.reduce((s, r) => s + r.horas_extras_nocturnas, 0),
+          horas_extras_feriados: rows.reduce((s, r) => s + r.horas_extras_feriados, 0),
+          total_horas_extra: rows.reduce((s, r) => s + r.total_horas_extra, 0),
+        },
+        periodo: q
+          ? `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}`
+          : "",
+      };
+    }
+
+    case "historico_sueldos": {
+      if (!filters.empleadoId) throw new Error("Seleccione un empleado");
+
+      const { data: emp } = await supabase
+        .from("empleados")
+        .select("nombre, apellido, numero_empleado")
+        .eq("id", filters.empleadoId)
+        .single();
+
+      let query = supabase
+        .from("nomina_items")
+        .select("quincena_id, subtotal_devengado, total_deducciones, total_neto, horas_base, horas_extras_diurnas, horas_extras_nocturnas, horas_extras_feriados, quincena:quincenas(periodo_inicio, periodo_fin, descripcion)")
+        .eq("empleado_id", filters.empleadoId)
+        .order("created_at", { ascending: true });
+
+      const { data: items, error } = await query;
+      if (error) throw error;
+
+      const rows = (items || []).map((ni) => {
+        const q = unwrap<{ periodo_inicio: string; periodo_fin: string; descripcion: string | null }>(ni.quincena);
+        return {
+          periodo: q ? `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}` : "",
+          descripcion: q?.descripcion || "",
+          horas_base: ni.horas_base,
+          subtotal_devengado: ni.subtotal_devengado,
+          total_deducciones: ni.total_deducciones,
+          total_neto: ni.total_neto,
+        };
+      });
+
+      return {
+        columns: [
+          { key: "periodo", label: "Período" },
+          { key: "descripcion", label: "Descripción" },
+          { key: "horas_base", label: "Hrs Base", align: "right" },
+          { key: "subtotal_devengado", label: "Devengado", align: "right" },
+          { key: "total_deducciones", label: "Deducciones", align: "right" },
+          { key: "total_neto", label: "Neto", align: "right" },
+        ],
+        data: rows,
+        subtitle: emp ? `${emp.numero_empleado} - ${emp.nombre} ${emp.apellido}` : "",
+        periodo: filters.fechaDesde && filters.fechaHasta
+          ? `${formatDate(filters.fechaDesde)} - ${formatDate(filters.fechaHasta)}`
+          : "Todo el historial",
+      };
+    }
+
+    // =====================================================================
+    // PRESTAMOS
+    // =====================================================================
+    case "prestamos_activos": {
+      const { data: prests, error } = await supabase
+        .from("prestamos")
+        .select("*, empleado:empleados(nombre, apellido, numero_empleado)")
+        .eq("estado", "activo")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+
+      const rows = (prests || []).map((p) => {
+        const emp = unwrap<{ nombre: string; apellido: string; numero_empleado: string }>(p.empleado);
+        return {
+          numero_empleado: emp?.numero_empleado || "",
+          nombre: emp ? `${emp.nombre} ${emp.apellido}` : "",
+          monto_total: p.monto_total,
+          cuota_quincenal: p.cuota_quincenal,
+          saldo_pendiente: p.saldo_pendiente,
+          cuotas_pagadas: p.numero_cuotas_pagadas,
+          cuotas_estimadas: p.numero_cuotas_estimado || 0,
+          fecha_inicio: p.fecha_inicio ? formatDate(p.fecha_inicio) : "",
+          notas: p.notas || "",
+        };
+      });
+
+      const totalMonto = rows.reduce((s, r) => s + (Number(r.monto_total) || 0), 0);
+      const totalSaldo = rows.reduce((s, r) => s + (Number(r.saldo_pendiente) || 0), 0);
+      const totalCuota = rows.reduce((s, r) => s + (Number(r.cuota_quincenal) || 0), 0);
+
+      return {
+        columns: [
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "nombre", label: "Nombre" },
+          { key: "monto_total", label: "Monto Total", align: "right" },
+          { key: "cuota_quincenal", label: "Cuota Quinc.", align: "right" },
+          { key: "saldo_pendiente", label: "Saldo Pend.", align: "right" },
+          { key: "cuotas_pagadas", label: "Cuotas Pag.", align: "right" },
+          { key: "cuotas_estimadas", label: "Cuotas Est.", align: "right" },
+          { key: "fecha_inicio", label: "Inicio" },
+          { key: "notas", label: "Notas" },
+        ],
+        data: rows,
+        totals: {
+          nombre: `TOTAL (${rows.length} préstamos)`,
+          monto_total: totalMonto,
+          cuota_quincenal: totalCuota,
+          saldo_pendiente: totalSaldo,
+        },
+      };
+    }
+
+    case "historial_prestamos": {
+      let query = supabase
+        .from("prestamos")
+        .select("*, empleado:empleados(nombre, apellido, numero_empleado)")
+        .order("created_at", { ascending: false });
+
+      if (filters.estado) query = query.eq("estado", filters.estado);
+
+      const { data: prests, error } = await query;
+      if (error) throw error;
+
+      const rows = (prests || []).map((p) => {
+        const emp = unwrap<{ nombre: string; apellido: string; numero_empleado: string }>(p.empleado);
+        return {
+          numero_empleado: emp?.numero_empleado || "",
+          nombre: emp ? `${emp.nombre} ${emp.apellido}` : "",
+          estado: p.estado,
+          monto_total: p.monto_total,
+          cuota_quincenal: p.cuota_quincenal,
+          saldo_pendiente: p.saldo_pendiente,
+          cuotas_pagadas: p.numero_cuotas_pagadas,
+          cuotas_estimadas: p.numero_cuotas_estimado || 0,
+          fecha_inicio: p.fecha_inicio ? formatDate(p.fecha_inicio) : "",
+        };
+      });
+
+      const totalMonto = rows.reduce((s, r) => s + (Number(r.monto_total) || 0), 0);
+      const totalSaldo = rows.reduce((s, r) => s + (Number(r.saldo_pendiente) || 0), 0);
+
+      return {
+        columns: [
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "nombre", label: "Nombre" },
+          { key: "estado", label: "Estado", align: "center" },
+          { key: "monto_total", label: "Monto Total", align: "right" },
+          { key: "cuota_quincenal", label: "Cuota Quinc.", align: "right" },
+          { key: "saldo_pendiente", label: "Saldo Pend.", align: "right" },
+          { key: "cuotas_pagadas", label: "Cuotas Pag.", align: "right" },
+          { key: "cuotas_estimadas", label: "Cuotas Est.", align: "right" },
+          { key: "fecha_inicio", label: "Inicio" },
+        ],
+        data: rows,
+        totals: {
+          nombre: `TOTAL (${rows.length})`,
+          monto_total: totalMonto,
+          saldo_pendiente: totalSaldo,
+        },
+        subtitle: filters.estado ? `Estado: ${filters.estado}` : "Todos los estados",
+      };
+    }
+
+    case "prestamos_empleado": {
+      if (!filters.empleadoId) throw new Error("Seleccione un empleado");
+
+      const { data: emp } = await supabase
+        .from("empleados")
+        .select("nombre, apellido, numero_empleado")
+        .eq("id", filters.empleadoId)
+        .single();
+
+      const { data: prests, error } = await supabase
+        .from("prestamos")
+        .select("*")
+        .eq("empleado_id", filters.empleadoId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+
+      const rows = (prests || []).map((p) => ({
+        estado: p.estado,
+        monto_total: p.monto_total,
+        cuota_quincenal: p.cuota_quincenal,
+        saldo_pendiente: p.saldo_pendiente,
+        cuotas_pagadas: p.numero_cuotas_pagadas,
+        cuotas_estimadas: p.numero_cuotas_estimado || 0,
+        fecha_inicio: p.fecha_inicio ? formatDate(p.fecha_inicio) : "",
+        notas: p.notas || "",
+      }));
+
+      const totalMonto = rows.reduce((s, r) => s + (Number(r.monto_total) || 0), 0);
+      const totalSaldo = rows.reduce((s, r) => s + (Number(r.saldo_pendiente) || 0), 0);
+
+      return {
+        columns: [
+          { key: "estado", label: "Estado", align: "center" },
+          { key: "monto_total", label: "Monto Total", align: "right" },
+          { key: "cuota_quincenal", label: "Cuota Quinc.", align: "right" },
+          { key: "saldo_pendiente", label: "Saldo Pend.", align: "right" },
+          { key: "cuotas_pagadas", label: "Cuotas Pag.", align: "right" },
+          { key: "cuotas_estimadas", label: "Cuotas Est.", align: "right" },
+          { key: "fecha_inicio", label: "Inicio" },
+          { key: "notas", label: "Notas" },
+        ],
+        data: rows,
+        totals: {
+          estado: `TOTAL (${rows.length})`,
+          monto_total: totalMonto,
+          saldo_pendiente: totalSaldo,
+        },
+        subtitle: emp ? `${emp.numero_empleado} - ${emp.nombre} ${emp.apellido}` : "",
+      };
+    }
+
+    // =====================================================================
+    // DEDUCCIONES Y TSS
+    // =====================================================================
+    case "tss_mensual": {
+      let query = supabase
+        .from("quincenas")
+        .select("id, periodo_inicio, periodo_fin, descripcion")
+        .order("periodo_inicio", { ascending: true });
+
+      if (filters.fechaDesde) query = query.gte("periodo_inicio", filters.fechaDesde);
+      if (filters.fechaHasta) query = query.lte("periodo_fin", filters.fechaHasta);
+
+      const { data: qs, error: qErr } = await query;
+      if (qErr) throw qErr;
+      if (!qs || qs.length === 0) throw new Error("No hay quincenas en el período seleccionado");
+
+      const qIds = qs.map((q) => q.id);
+      const { data: items, error: iErr } = await supabase
+        .from("nomina_items")
+        .select("empleado_id, quincena_id, subtotal_devengado, aporte_afp_empleado, aporte_sfs_empleado")
+        .in("quincena_id", qIds);
+      if (iErr) throw iErr;
+
+      // Also need employee info
+      const empIds = [...new Set((items || []).map((i) => i.empleado_id))];
+      const { data: emps } = await supabase
+        .from("empleados")
+        .select("id, nombre, apellido, numero_empleado, cedula")
+        .in("id", empIds);
+
+      const empMap = new Map<string, { nombre: string; num: string; cedula: string }>();
+      for (const e of emps || []) {
+        empMap.set(e.id, {
+          nombre: `${e.nombre} ${e.apellido}`,
+          num: e.numero_empleado,
+          cedula: e.cedula || "",
+        });
+      }
+
+      // Aggregate per employee
+      const aggMap = new Map<
+        string,
+        { dev: number; afpEmp: number; sfsEmp: number }
+      >();
+      for (const it of items || []) {
+        const prev = aggMap.get(it.empleado_id) || { dev: 0, afpEmp: 0, sfsEmp: 0 };
+        prev.dev += it.subtotal_devengado || 0;
+        prev.afpEmp += it.aporte_afp_empleado || 0;
+        prev.sfsEmp += it.aporte_sfs_empleado || 0;
+        aggMap.set(it.empleado_id, prev);
+      }
+
+      const rows = [...aggMap.entries()].map(([id, agg]) => {
+        const info = empMap.get(id);
+        const afpPatronal = agg.dev * TSS.AFP_PATRONAL;
+        const sfsPatronal = agg.dev * TSS.SFS_PATRONAL;
+        const srlPatronal = agg.dev * TSS.SRL_PATRONAL;
+        return {
+          numero_empleado: info?.num || "",
+          cedula: info?.cedula || "",
+          nombre: info?.nombre || "",
+          salario_cotizable: agg.dev,
+          afp_empleado: agg.afpEmp,
+          afp_patronal: afpPatronal,
+          sfs_empleado: agg.sfsEmp,
+          sfs_patronal: sfsPatronal,
+          srl_patronal: srlPatronal,
+          total_empleado: agg.afpEmp + agg.sfsEmp,
+          total_patronal: afpPatronal + sfsPatronal + srlPatronal,
+        };
+      });
+
+      const sumF = (f: string) => rows.reduce((s, r) => s + (Number((r as Record<string, unknown>)[f]) || 0), 0);
+
+      return {
+        columns: [
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "cedula", label: "Cédula" },
+          { key: "nombre", label: "Nombre" },
+          { key: "salario_cotizable", label: "Sal. Cotizable", align: "right" },
+          { key: "afp_empleado", label: "AFP Emp.", align: "right" },
+          { key: "afp_patronal", label: "AFP Patr.", align: "right" },
+          { key: "sfs_empleado", label: "SFS Emp.", align: "right" },
+          { key: "sfs_patronal", label: "SFS Patr.", align: "right" },
+          { key: "srl_patronal", label: "SRL Patr.", align: "right" },
+          { key: "total_empleado", label: "Total Emp.", align: "right" },
+          { key: "total_patronal", label: "Total Patr.", align: "right" },
+        ],
+        data: rows,
+        totals: {
+          nombre: `TOTAL (${rows.length})`,
+          salario_cotizable: sumF("salario_cotizable"),
+          afp_empleado: sumF("afp_empleado"),
+          afp_patronal: sumF("afp_patronal"),
+          sfs_empleado: sumF("sfs_empleado"),
+          sfs_patronal: sumF("sfs_patronal"),
+          srl_patronal: sumF("srl_patronal"),
+          total_empleado: sumF("total_empleado"),
+          total_patronal: sumF("total_patronal"),
+        },
+        subtitle: "Aportes a la Tesorería de Seguridad Social",
+        periodo: filters.fechaDesde && filters.fechaHasta
+          ? `${formatDate(filters.fechaDesde)} - ${formatDate(filters.fechaHasta)}`
+          : "Período seleccionado",
+      };
+    }
+
+    case "costo_patronal": {
+      let query = supabase
+        .from("quincenas")
+        .select("id, periodo_inicio, periodo_fin, descripcion")
+        .order("periodo_inicio", { ascending: true });
+
+      if (filters.fechaDesde) query = query.gte("periodo_inicio", filters.fechaDesde);
+      if (filters.fechaHasta) query = query.lte("periodo_fin", filters.fechaHasta);
+
+      const { data: qs, error: qErr } = await query;
+      if (qErr) throw qErr;
+      if (!qs || qs.length === 0) throw new Error("No hay quincenas en el período seleccionado");
+
+      const results: Record<string, unknown>[] = [];
+      for (const q of qs) {
+        const { data: items } = await supabase
+          .from("nomina_items")
+          .select("subtotal_devengado")
+          .eq("quincena_id", q.id);
+
+        const totalDev = (items || []).reduce((s, i) => s + (i.subtotal_devengado || 0), 0);
+        const afp = totalDev * TSS.AFP_PATRONAL;
+        const sfs = totalDev * TSS.SFS_PATRONAL;
+        const srl = totalDev * TSS.SRL_PATRONAL;
+
+        results.push({
+          periodo: `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}`,
+          descripcion: q.descripcion || "",
+          total_devengado: totalDev,
+          afp_patronal: afp,
+          sfs_patronal: sfs,
+          srl_patronal: srl,
+          total_patronal: afp + sfs + srl,
+          costo_total: totalDev + afp + sfs + srl,
+        });
+      }
+
+      const sumF = (f: string) => results.reduce((s, r) => s + (Number(r[f]) || 0), 0);
+
+      return {
+        columns: [
+          { key: "periodo", label: "Período" },
+          { key: "descripcion", label: "Descripción" },
+          { key: "total_devengado", label: "Devengado", align: "right" },
+          { key: "afp_patronal", label: "AFP Patr.", align: "right" },
+          { key: "sfs_patronal", label: "SFS Patr.", align: "right" },
+          { key: "srl_patronal", label: "SRL Patr.", align: "right" },
+          { key: "total_patronal", label: "Total Patr.", align: "right" },
+          { key: "costo_total", label: "Costo Total", align: "right" },
+        ],
+        data: results,
+        totals: {
+          periodo: `TOTAL (${results.length} quincenas)`,
+          total_devengado: sumF("total_devengado"),
+          afp_patronal: sumF("afp_patronal"),
+          sfs_patronal: sumF("sfs_patronal"),
+          srl_patronal: sumF("srl_patronal"),
+          total_patronal: sumF("total_patronal"),
+          costo_total: sumF("costo_total"),
+        },
+        subtitle: "Contribuciones Patronales",
+        periodo: filters.fechaDesde && filters.fechaHasta
+          ? `${formatDate(filters.fechaDesde)} - ${formatDate(filters.fechaHasta)}`
+          : "Todas las quincenas",
+      };
+    }
+
+    case "resumen_deducciones": {
+      if (!filters.quincenaId) throw new Error("Seleccione una quincena");
+
+      const { data: q } = await supabase
+        .from("quincenas")
+        .select("*")
+        .eq("id", filters.quincenaId)
+        .single();
+
+      const { data: items, error } = await supabase
+        .from("nomina_items")
+        .select("*, empleado:empleados(nombre, apellido, numero_empleado)")
+        .eq("quincena_id", filters.quincenaId);
+      if (error) throw error;
+
+      const rows = (items || []).map((ni) => {
+        const emp = unwrap<{ nombre: string; apellido: string; numero_empleado: string }>(ni.empleado);
+        return {
+          numero_empleado: emp?.numero_empleado || "",
+          nombre: emp ? `${emp.nombre} ${emp.apellido}` : "",
+          subtotal_devengado: ni.subtotal_devengado,
+          aporte_afp_empleado: ni.aporte_afp_empleado,
+          aporte_sfs_empleado: ni.aporte_sfs_empleado,
+          isr: ni.isr,
+          deduccion_prestamo: ni.deduccion_prestamo || 0,
+          total_deducciones: ni.total_deducciones,
+          total_neto: ni.total_neto,
+        };
+      });
+
+      const sumF = (f: string) => rows.reduce((s, r) => s + (Number((r as Record<string, unknown>)[f]) || 0), 0);
+
+      return {
+        columns: [
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "nombre", label: "Nombre" },
+          { key: "subtotal_devengado", label: "Devengado", align: "right" },
+          { key: "aporte_afp_empleado", label: "AFP", align: "right" },
+          { key: "aporte_sfs_empleado", label: "SFS", align: "right" },
+          { key: "isr", label: "ISR", align: "right" },
+          { key: "deduccion_prestamo", label: "Préstamo", align: "right" },
+          { key: "total_deducciones", label: "Total Ded.", align: "right" },
+          { key: "total_neto", label: "Neto", align: "right" },
+        ],
+        data: rows,
+        totals: {
+          nombre: `TOTAL (${rows.length})`,
+          subtotal_devengado: sumF("subtotal_devengado"),
+          aporte_afp_empleado: sumF("aporte_afp_empleado"),
+          aporte_sfs_empleado: sumF("aporte_sfs_empleado"),
+          isr: sumF("isr"),
+          deduccion_prestamo: sumF("deduccion_prestamo"),
+          total_deducciones: sumF("total_deducciones"),
+          total_neto: sumF("total_neto"),
+        },
+        periodo: q
+          ? `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}`
+          : "",
+        subtitle: q?.descripcion || "Resumen de Deducciones",
+      };
+    }
+
+    // =====================================================================
+    // VACACIONES Y LIQUIDACIONES
+    // =====================================================================
+    case "vacaciones_resumen": {
+      let query = supabase
+        .from("empleados")
+        .select("*")
+        .eq("estado", "activo")
+        .order("apellido");
+      if (filters.departamento)
+        query = query.eq("departamento", filters.departamento);
+
+      const { data: emps, error } = await query;
+      if (error) throw error;
+
+      const rows = (emps || []).map((e) => {
+        const acum = e.dias_vacaciones_acumulados || 0;
+        const tom = e.dias_vacaciones_tomados || 0;
+        return {
+          numero_empleado: e.numero_empleado,
+          nombre: `${e.nombre} ${e.apellido}`,
+          departamento: e.departamento || "",
+          fecha_ingreso: e.fecha_ingreso ? formatDate(e.fecha_ingreso) : "",
+          dias_acumulados: acum,
+          dias_tomados: tom,
+          dias_disponibles: acum - tom,
+        };
+      });
+
+      return {
+        columns: [
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "nombre", label: "Nombre" },
+          { key: "departamento", label: "Depto." },
+          { key: "fecha_ingreso", label: "Ingreso" },
+          { key: "dias_acumulados", label: "Acumulados", align: "right" },
+          { key: "dias_tomados", label: "Tomados", align: "right" },
+          { key: "dias_disponibles", label: "Disponibles", align: "right" },
+        ],
+        data: rows,
+        totals: {
+          nombre: `TOTAL (${rows.length})`,
+          dias_acumulados: rows.reduce((s, r) => s + r.dias_acumulados, 0),
+          dias_tomados: rows.reduce((s, r) => s + r.dias_tomados, 0),
+          dias_disponibles: rows.reduce((s, r) => s + r.dias_disponibles, 0),
+        },
+        subtitle: filters.departamento
+          ? `Departamento: ${filters.departamento}`
+          : "Todos los departamentos",
+      };
+    }
+
+    case "liquidaciones_procesadas": {
+      let query = supabase
+        .from("liquidaciones")
+        .select("*, empleado:empleados(nombre, apellido, numero_empleado)")
+        .order("fecha_salida", { ascending: false });
+
+      if (filters.fechaDesde) query = query.gte("fecha_salida", filters.fechaDesde);
+      if (filters.fechaHasta) query = query.lte("fecha_salida", filters.fechaHasta);
+
+      const { data: liqs, error } = await query;
+      if (error) throw error;
+
+      const rows = (liqs || []).map((l) => {
+        const emp = unwrap<{ nombre: string; apellido: string; numero_empleado: string }>(l.empleado);
+        return {
+          numero_empleado: emp?.numero_empleado || "",
+          nombre: emp ? `${emp.nombre} ${emp.apellido}` : "",
+          fecha_salida: l.fecha_salida ? formatDate(l.fecha_salida) : "",
+          motivo: l.motivo || "",
+          estado: l.estado,
+          monto_preaviso: l.monto_preaviso || 0,
+          monto_cesantia: l.monto_cesantia || 0,
+          monto_vacaciones: l.monto_vacaciones || 0,
+          monto_regalia: l.monto_regalia || 0,
+          monto_salarios_pendientes: l.monto_salarios_pendientes || 0,
+          total_liquidacion: l.total_liquidacion || 0,
+        };
+      });
+
+      const sumF = (f: string) => rows.reduce((s, r) => s + (Number((r as Record<string, unknown>)[f]) || 0), 0);
+
+      return {
+        columns: [
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "nombre", label: "Nombre" },
+          { key: "fecha_salida", label: "Fecha Salida" },
+          { key: "motivo", label: "Motivo" },
+          { key: "estado", label: "Estado", align: "center" },
+          { key: "monto_preaviso", label: "Preaviso", align: "right" },
+          { key: "monto_cesantia", label: "Cesantía", align: "right" },
+          { key: "monto_vacaciones", label: "Vacaciones", align: "right" },
+          { key: "monto_regalia", label: "Regalía", align: "right" },
+          { key: "monto_salarios_pendientes", label: "Sal. Pend.", align: "right" },
+          { key: "total_liquidacion", label: "Total", align: "right" },
+        ],
+        data: rows,
+        totals: {
+          nombre: `TOTAL (${rows.length})`,
+          monto_preaviso: sumF("monto_preaviso"),
+          monto_cesantia: sumF("monto_cesantia"),
+          monto_vacaciones: sumF("monto_vacaciones"),
+          monto_regalia: sumF("monto_regalia"),
+          monto_salarios_pendientes: sumF("monto_salarios_pendientes"),
+          total_liquidacion: sumF("total_liquidacion"),
+        },
+        subtitle: "Liquidaciones de Personal",
+        periodo: filters.fechaDesde && filters.fechaHasta
+          ? `${formatDate(filters.fechaDesde)} - ${formatDate(filters.fechaHasta)}`
+          : "Todas las liquidaciones",
+      };
+    }
+
+    // =====================================================================
+    // RESUMENES GERENCIALES
+    // =====================================================================
+    case "resumen_ejecutivo": {
+      if (!filters.quincenaId) throw new Error("Seleccione una quincena");
+
+      const { data: q } = await supabase
+        .from("quincenas")
+        .select("*")
+        .eq("id", filters.quincenaId)
+        .single();
+
+      const { data: items, error } = await supabase
+        .from("nomina_items")
+        .select("subtotal_devengado, total_deducciones, total_neto, aporte_afp_empleado, aporte_sfs_empleado, isr, deduccion_prestamo, horas_extras_diurnas, horas_extras_nocturnas, horas_extras_feriados")
+        .eq("quincena_id", filters.quincenaId);
+      if (error) throw error;
+
+      const data = items || [];
+      const totalDev = data.reduce((s, i) => s + (i.subtotal_devengado || 0), 0);
+      const totalDed = data.reduce((s, i) => s + (i.total_deducciones || 0), 0);
+      const totalNet = data.reduce((s, i) => s + (i.total_neto || 0), 0);
+      const totalAFP = data.reduce((s, i) => s + (i.aporte_afp_empleado || 0), 0);
+      const totalSFS = data.reduce((s, i) => s + (i.aporte_sfs_empleado || 0), 0);
+      const totalISR = data.reduce((s, i) => s + (i.isr || 0), 0);
+      const totalPrest = data.reduce((s, i) => s + (i.deduccion_prestamo || 0), 0);
+      const totalHE = data.reduce(
+        (s, i) =>
+          s +
+          (i.horas_extras_diurnas || 0) +
+          (i.horas_extras_nocturnas || 0) +
+          (i.horas_extras_feriados || 0),
+        0
+      );
+
+      const afpPatronal = totalDev * TSS.AFP_PATRONAL;
+      const sfsPatronal = totalDev * TSS.SFS_PATRONAL;
+      const srlPatronal = totalDev * TSS.SRL_PATRONAL;
+      const costoPatronal = afpPatronal + sfsPatronal + srlPatronal;
+
+      const rows = [
+        { concepto: "Total Empleados en Nómina", valor: data.length },
+        { concepto: "Total Devengado", valor: totalDev },
+        { concepto: "Total Horas Extra", valor: totalHE },
+        { concepto: "AFP Empleados", valor: totalAFP },
+        { concepto: "SFS Empleados", valor: totalSFS },
+        { concepto: "ISR", valor: totalISR },
+        { concepto: "Descuento Préstamos", valor: totalPrest },
+        { concepto: "Total Deducciones", valor: totalDed },
+        { concepto: "Total Neto a Pagar", valor: totalNet },
+        { concepto: "AFP Patronal", valor: afpPatronal },
+        { concepto: "SFS Patronal", valor: sfsPatronal },
+        { concepto: "SRL Patronal", valor: srlPatronal },
+        { concepto: "Total Costo Patronal", valor: costoPatronal },
+        { concepto: "COSTO TOTAL EMPRESA", valor: totalDev + costoPatronal },
+      ];
+
+      return {
+        columns: [
+          { key: "concepto", label: "Concepto" },
+          { key: "valor", label: "Valor", align: "right" },
+        ],
+        data: rows,
+        periodo: q
+          ? `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}`
+          : "",
+        subtitle: q?.descripcion || "Resumen Ejecutivo",
+      };
+    }
+
+    case "costo_total_empleado": {
+      if (!filters.quincenaId) throw new Error("Seleccione una quincena");
+
+      const { data: q } = await supabase
+        .from("quincenas")
+        .select("*")
+        .eq("id", filters.quincenaId)
+        .single();
+
+      const { data: items, error } = await supabase
+        .from("nomina_items")
+        .select("*, empleado:empleados(nombre, apellido, numero_empleado, departamento)")
+        .eq("quincena_id", filters.quincenaId);
+      if (error) throw error;
+
+      const rows = (items || []).map((ni) => {
+        const emp = unwrap<{
+          nombre: string;
+          apellido: string;
+          numero_empleado: string;
+          departamento: string | null;
+        }>(ni.empleado);
+        const dev = ni.subtotal_devengado || 0;
+        const afpP = dev * TSS.AFP_PATRONAL;
+        const sfsP = dev * TSS.SFS_PATRONAL;
+        const srlP = dev * TSS.SRL_PATRONAL;
+        const costoP = afpP + sfsP + srlP;
+        return {
+          numero_empleado: emp?.numero_empleado || "",
+          nombre: emp ? `${emp.nombre} ${emp.apellido}` : "",
+          departamento: emp?.departamento || "",
+          subtotal_devengado: dev,
+          costo_patronal: costoP,
+          costo_total: dev + costoP,
+        };
+      });
+
+      const sumF = (f: string) => rows.reduce((s, r) => s + (Number((r as Record<string, unknown>)[f]) || 0), 0);
+
+      return {
+        columns: [
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "nombre", label: "Nombre" },
+          { key: "departamento", label: "Depto." },
+          { key: "subtotal_devengado", label: "Devengado", align: "right" },
+          { key: "costo_patronal", label: "Costo Patronal", align: "right" },
+          { key: "costo_total", label: "Costo Total", align: "right" },
+        ],
+        data: rows,
+        totals: {
+          nombre: `TOTAL (${rows.length})`,
+          subtotal_devengado: sumF("subtotal_devengado"),
+          costo_patronal: sumF("costo_patronal"),
+          costo_total: sumF("costo_total"),
+        },
+        periodo: q
+          ? `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}`
+          : "",
+        subtitle: q?.descripcion || "Costo Total por Empleado",
+      };
+    }
+
+    case "gastos_departamento": {
+      if (!filters.quincenaId) throw new Error("Seleccione una quincena");
+
+      const { data: q } = await supabase
+        .from("quincenas")
+        .select("*")
+        .eq("id", filters.quincenaId)
+        .single();
+
+      const { data: items, error } = await supabase
+        .from("nomina_items")
+        .select("subtotal_devengado, total_neto, total_deducciones, empleado:empleados(departamento)")
+        .eq("quincena_id", filters.quincenaId);
+      if (error) throw error;
+
+      // Aggregate by department
+      const deptMap = new Map<
+        string,
+        { empleados: number; devengado: number; deducciones: number; neto: number }
+      >();
+
+      for (const ni of items || []) {
+        const emp = unwrap<{ departamento: string | null }>(ni.empleado);
+        const dept = emp?.departamento || "Sin departamento";
+        const prev = deptMap.get(dept) || { empleados: 0, devengado: 0, deducciones: 0, neto: 0 };
+        prev.empleados += 1;
+        prev.devengado += ni.subtotal_devengado || 0;
+        prev.deducciones += ni.total_deducciones || 0;
+        prev.neto += ni.total_neto || 0;
+        deptMap.set(dept, prev);
+      }
+
+      const totalDev = [...deptMap.values()].reduce((s, v) => s + v.devengado, 0);
+
+      const rows = [...deptMap.entries()]
+        .sort((a, b) => b[1].devengado - a[1].devengado)
+        .map(([dept, v]) => {
+          const costoP = v.devengado * (TSS.AFP_PATRONAL + TSS.SFS_PATRONAL + TSS.SRL_PATRONAL);
+          return {
+            departamento: dept,
+            empleados: v.empleados,
+            devengado: v.devengado,
+            deducciones: v.deducciones,
+            neto: v.neto,
+            costo_patronal: costoP,
+            costo_total: v.devengado + costoP,
+            porcentaje: totalDev > 0 ? ((v.devengado / totalDev) * 100) : 0,
+          };
+        });
+
+      const sumF = (f: string) => rows.reduce((s, r) => s + (Number((r as Record<string, unknown>)[f]) || 0), 0);
+
+      return {
+        columns: [
+          { key: "departamento", label: "Departamento" },
+          { key: "empleados", label: "Empleados", align: "right" },
+          { key: "devengado", label: "Devengado", align: "right" },
+          { key: "deducciones", label: "Deducciones", align: "right" },
+          { key: "neto", label: "Neto", align: "right" },
+          { key: "costo_patronal", label: "Costo Patr.", align: "right" },
+          { key: "costo_total", label: "Costo Total", align: "right" },
+          { key: "porcentaje", label: "% del Total", align: "right" },
+        ],
+        data: rows,
+        totals: {
+          departamento: `TOTAL (${rows.length} dptos.)`,
+          empleados: rows.reduce((s, r) => s + r.empleados, 0),
+          devengado: sumF("devengado"),
+          deducciones: sumF("deducciones"),
+          neto: sumF("neto"),
+          costo_patronal: sumF("costo_patronal"),
+          costo_total: sumF("costo_total"),
+          porcentaje: 100,
+        },
+        periodo: q
+          ? `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}`
+          : "",
+        subtitle: q?.descripcion || "Análisis por Departamento",
+      };
+    }
+
+    default:
+      throw new Error("Reporte no implementado");
+  }
 }

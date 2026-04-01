@@ -3,7 +3,8 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Calculator, Save, Loader2, FileText } from "lucide-react";
+import { ArrowLeft, Calculator, Save, Loader2, FileText, Printer, UserX } from "lucide-react";
+import { generatePDFReport } from "@/lib/pdf-utils";
 import { createClient } from "@/lib/supabase/client";
 import { calcularLiquidacion } from "@/lib/calculations/liquidacion";
 import type { LiquidacionResult } from "@/lib/calculations/liquidacion";
@@ -22,6 +23,7 @@ interface EmpleadoOption {
 
 interface Props {
   empleados: EmpleadoOption[];
+  preselectedEmpleadoId?: string;
 }
 
 const MOTIVO_OPTIONS: { value: MotivoLiquidacion; label: string }[] = [
@@ -31,12 +33,12 @@ const MOTIVO_OPTIONS: { value: MotivoLiquidacion; label: string }[] = [
   { value: "fin_contrato", label: "Fin de contrato" },
 ];
 
-export function LiquidacionForm({ empleados }: Props) {
+export function LiquidacionForm({ empleados, preselectedEmpleadoId }: Props) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [empleadoId, setEmpleadoId] = useState("");
+  const [empleadoId, setEmpleadoId] = useState(preselectedEmpleadoId || "");
   const [fechaSalida, setFechaSalida] = useState("");
   const [motivo, setMotivo] = useState<MotivoLiquidacion | "">("");
   const [salariosPendientes, setSalariosPendientes] = useState(0);
@@ -104,6 +106,9 @@ export function LiquidacionForm({ empleados }: Props) {
 
       if (insertError) throw insertError;
 
+      // Also deactivate the employee
+      await supabase.from("empleados").update({ estado: "desvinculado" }).eq("id", selectedEmpleado.id);
+
       router.push("/liquidaciones");
       router.refresh();
     } catch (err) {
@@ -111,6 +116,29 @@ export function LiquidacionForm({ empleados }: Props) {
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleExportPDF() {
+    if (!resultado || !selectedEmpleado) return;
+    const motivoLabel = MOTIVO_OPTIONS.find((m) => m.value === motivo)?.label || motivo;
+    const columns = ["Concepto", "Detalle", "Monto (RD$)"];
+    const data: (string | number)[][] = [
+      ["Preaviso (Art. 76 CT)", `${resultado.dias_preaviso} días`, resultado.monto_preaviso],
+      ["Cesantía (Art. 80 CT)", `${resultado.dias_cesantia} días`, resultado.monto_cesantia],
+      ["Vacaciones Proporcionales (Art. 177 CT)", `${resultado.dias_vacaciones_proporcionales} días`, resultado.monto_vacaciones],
+      ["Regalía Pascual Proporcional (Art. 219 CT)", `${resultado.meses_regalia} meses`, resultado.monto_regalia],
+    ];
+    if (resultado.monto_salarios_pendientes > 0) {
+      data.push(["Salarios Pendientes", "", resultado.monto_salarios_pendientes]);
+    }
+    const totals: (string | number)[] = ["TOTAL LIQUIDACIÓN", "", resultado.total_liquidacion];
+    generatePDFReport({
+      title: "Liquidación Laboral",
+      subtitle: `${selectedEmpleado.nombre} ${selectedEmpleado.apellido} (${selectedEmpleado.numero_empleado}) — ${motivoLabel}`,
+      periodo: `Ingreso: ${selectedEmpleado.fecha_ingreso} | Salida: ${fechaSalida}`,
+      columns, data, totals,
+      fileName: `Liquidacion_${selectedEmpleado.numero_empleado}_${fechaSalida}.pdf`,
+    });
   }
 
   return (
@@ -337,7 +365,23 @@ export function LiquidacionForm({ empleados }: Props) {
                 </span>
               </div>
 
-              {/* Boton Guardar */}
+              {/* Action buttons */}
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={handleExportPDF}
+                  className="inline-flex items-center justify-center gap-2 bg-red-50 text-red-600 font-medium px-4 py-2.5 rounded-lg hover:bg-red-100 transition-colors text-sm"
+                >
+                  <FileText className="h-4 w-4" /> Exportar PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="inline-flex items-center justify-center gap-2 bg-gray-100 text-gray-600 font-medium px-4 py-2.5 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                >
+                  <Printer className="h-4 w-4" /> Imprimir
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={handleGuardar}
@@ -347,9 +391,9 @@ export function LiquidacionForm({ empleados }: Props) {
                 {saving ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
-                  <Save className="h-5 w-5" />
+                  <UserX className="h-5 w-5" />
                 )}
-                {saving ? "Guardando..." : "Guardar Liquidacion"}
+                {saving ? "Procesando..." : "Guardar y Desvincular Empleado"}
               </button>
             </div>
           )}

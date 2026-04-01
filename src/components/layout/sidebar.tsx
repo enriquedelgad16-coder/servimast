@@ -119,7 +119,7 @@ export function Sidebar({ userRole, collapsed, onToggle }: SidebarProps) {
   return (
     <aside
       className={cn(
-        "fixed left-0 top-16 bottom-0 z-30 flex flex-col bg-navy-800 text-white transition-all duration-300",
+        "fixed left-0 top-16 bottom-0 z-30 flex flex-col bg-navy-800 text-white transition-all duration-300 print:hidden",
         collapsed ? "w-16" : "w-60"
       )}
     >

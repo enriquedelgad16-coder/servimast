@@ -1,0 +1,807 @@
+"use client";
+
+import { useState, useMemo } from "react";
+import Link from "next/link";
+import {
+  Users,
+  Calculator,
+  Wallet,
+  TrendingUp,
+  AlertTriangle,
+  Clock,
+  ChevronDown,
+  FileText,
+  CreditCard,
+  BarChart3,
+  UserPlus,
+  PlusCircle,
+  ArrowRight,
+  CalendarDays,
+  Shield,
+  Activity,
+} from "lucide-react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  LineChart,
+  Line,
+} from "recharts";
+import { formatCurrency } from "@/lib/utils";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface QuincenaTotals {
+  id: string;
+  periodo_inicio: string;
+  periodo_fin: string;
+  estado: string;
+  descripcion: string | null;
+  fecha_pago: string | null;
+  total_devengado: number;
+  total_deducciones: number;
+  total_neto: number;
+  horas_extras_diurnas: number;
+  horas_extras_nocturnas: number;
+  horas_extras_feriados: number;
+}
+
+interface ActividadReciente {
+  id: string;
+  empleado_id: string;
+  total_neto: number;
+  created_at: string;
+  empleado_nombre: string;
+  empleado_numero: string;
+  periodo: string;
+}
+
+interface DashboardClientProps {
+  totalEmpleados: number;
+  empleadosPorDepto: Record<string, number>;
+  departamentos: string[];
+  quincenas: QuincenaTotals[];
+  prestamosActivos: number;
+  saldoPrestamos: number;
+  costoPatronal: {
+    afp: number;
+    sfs: number;
+    srl: number;
+    total: number;
+  };
+  actividadReciente: ActividadReciente[];
+  alertas: {
+    empleadosProbacion: number;
+    prestamosPorTerminar: number;
+    quincenasBorrador: number;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Chart colors
+// ---------------------------------------------------------------------------
+
+const CHART_COLORS = [
+  "#00B4D8",
+  "#F97316",
+  "#16A34A",
+  "#3B82F6",
+  "#EAB308",
+  "#8B5CF6",
+  "#EC4899",
+  "#14B8A6",
+  "#F43F5E",
+  "#6366F1",
+];
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatShortDate(dateStr: string) {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-");
+  return `${d}/${m}`;
+}
+
+function formatPeriodoLabel(inicio: string, fin: string) {
+  return `${formatShortDate(inicio)} - ${formatShortDate(fin)}`;
+}
+
+function timeAgo(dateStr: string) {
+  if (!dateStr) return "";
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return "hace un momento";
+  if (diffMins < 60) return `hace ${diffMins} min`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `hace ${diffHours}h`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `hace ${diffDays}d`;
+  return new Intl.DateTimeFormat("es-DO", {
+    day: "2-digit",
+    month: "short",
+  }).format(date);
+}
+
+// ---------------------------------------------------------------------------
+// Custom tooltip
+// ---------------------------------------------------------------------------
+
+function CurrencyTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 shadow-lg p-3 text-sm">
+      <p className="font-medium text-gray-700 mb-1">{label}</p>
+      {payload.map((entry: any, i: number) => (
+        <p key={i} style={{ color: entry.color }} className="flex justify-between gap-4">
+          <span>{entry.name}:</span>
+          <span className="font-semibold">{formatCurrency(entry.value)}</span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function HoursTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 shadow-lg p-3 text-sm">
+      <p className="font-medium text-gray-700 mb-1">{label}</p>
+      {payload.map((entry: any, i: number) => (
+        <p key={i} style={{ color: entry.color }} className="flex justify-between gap-4">
+          <span>{entry.name}:</span>
+          <span className="font-semibold">{entry.value}h</span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export function DashboardClient({
+  totalEmpleados,
+  empleadosPorDepto,
+  departamentos,
+  quincenas,
+  prestamosActivos,
+  saldoPrestamos,
+  costoPatronal,
+  actividadReciente,
+  alertas,
+}: DashboardClientProps) {
+  // Filters
+  const [periodoFilter, setPeriodoFilter] = useState<"3" | "6" | "12">("6");
+  const [deptoFilter, setDeptoFilter] = useState<string>("todos");
+
+  // Derived data
+  const filteredQuincenas = useMemo(() => {
+    const limit = Number(periodoFilter);
+    // Each quincena is ~15 days, so 3 months ~= 6 quincenas, 6 months ~= 12, 12 months ~= 24
+    const quincenaLimit = limit * 2;
+    return quincenas.slice(0, quincenaLimit);
+  }, [quincenas, periodoFilter]);
+
+  const ultimaQuincena = quincenas[0] ?? null;
+
+  // Chart data: Nomina por quincena
+  const nominaChartData = useMemo(() => {
+    return [...filteredQuincenas].reverse().map((q) => ({
+      name: formatPeriodoLabel(q.periodo_inicio, q.periodo_fin),
+      Devengado: q.total_devengado,
+      Deducciones: q.total_deducciones,
+      Neto: q.total_neto,
+    }));
+  }, [filteredQuincenas]);
+
+  // Chart data: Distribucion por departamento
+  const deptoChartData = useMemo(() => {
+    return Object.entries(empleadosPorDepto)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [empleadosPorDepto]);
+
+  // Chart data: Tendencia mensual (aggregate quincenas by month)
+  const tendenciaData = useMemo(() => {
+    const monthMap: Record<string, number> = {};
+    [...filteredQuincenas].forEach((q) => {
+      const monthKey = q.periodo_fin.substring(0, 7); // YYYY-MM
+      monthMap[monthKey] = (monthMap[monthKey] || 0) + q.total_neto;
+    });
+    return Object.entries(monthMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, total]) => {
+        const [y, m] = month.split("-");
+        const monthNames = [
+          "Ene", "Feb", "Mar", "Abr", "May", "Jun",
+          "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
+        ];
+        return {
+          name: `${monthNames[Number(m) - 1]} ${y}`,
+          "Costo Nomina": total,
+        };
+      });
+  }, [filteredQuincenas]);
+
+  // Chart data: Horas extra por periodo
+  const horasExtraData = useMemo(() => {
+    return [...filteredQuincenas].reverse().map((q) => ({
+      name: formatPeriodoLabel(q.periodo_inicio, q.periodo_fin),
+      Diurnas: q.horas_extras_diurnas,
+      Nocturnas: q.horas_extras_nocturnas,
+      Feriados: q.horas_extras_feriados,
+    }));
+  }, [filteredQuincenas]);
+
+  const totalAlertas =
+    alertas.empleadosProbacion +
+    alertas.prestamosPorTerminar +
+    alertas.quincenasBorrador;
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-gray-500 mt-1">
+            Resumen general del sistema de nomina
+          </p>
+        </div>
+
+        {/* Filter bar */}
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <select
+              value={periodoFilter}
+              onChange={(e) => setPeriodoFilter(e.target.value as "3" | "6" | "12")}
+              className="appearance-none bg-white border border-gray-200 rounded-lg pl-3 pr-8 py-2 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent cursor-pointer"
+            >
+              <option value="3">Ultimos 3 meses</option>
+              <option value="6">Ultimos 6 meses</option>
+              <option value="12">Ultimos 12 meses</option>
+            </select>
+            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+          </div>
+
+          {departamentos.length > 1 && (
+            <div className="relative">
+              <select
+                value={deptoFilter}
+                onChange={(e) => setDeptoFilter(e.target.value)}
+                className="appearance-none bg-white border border-gray-200 rounded-lg pl-3 pr-8 py-2 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent cursor-pointer"
+              >
+                <option value="todos">Todos los deptos.</option>
+                {departamentos.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Stat cards                                                          */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Empleados Activos */}
+        <Link
+          href="/empleados"
+          className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md hover:border-cyan-300 transition-all group"
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-500">
+                Empleados Activos
+              </p>
+              <p className="mt-2 text-3xl font-bold text-gray-900">
+                {totalEmpleados}
+              </p>
+              <p className="mt-1 text-sm text-gray-400">
+                {departamentos.length} departamento{departamentos.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+            <div className="rounded-lg p-3 bg-cyan-500 group-hover:bg-cyan-400 transition-colors">
+              <Users className="h-6 w-6 text-white" />
+            </div>
+          </div>
+        </Link>
+
+        {/* Ultima Quincena */}
+        <Link
+          href="/nomina"
+          className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md hover:border-orange-300 transition-all group"
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-500">
+                Ultima Quincena
+              </p>
+              <p className="mt-2 text-3xl font-bold text-gray-900">
+                {ultimaQuincena
+                  ? formatCurrency(ultimaQuincena.total_neto)
+                  : "Sin datos"}
+              </p>
+              <p className="mt-1 text-sm text-gray-400">
+                {ultimaQuincena
+                  ? formatPeriodoLabel(
+                      ultimaQuincena.periodo_inicio,
+                      ultimaQuincena.periodo_fin
+                    )
+                  : ""}
+              </p>
+            </div>
+            <div className="rounded-lg p-3 bg-orange-500 group-hover:bg-orange-400 transition-colors">
+              <Calculator className="h-6 w-6 text-white" />
+            </div>
+          </div>
+        </Link>
+
+        {/* Prestamos Activos */}
+        <Link
+          href="/prestamos"
+          className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md hover:border-info-300 transition-all group"
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-500">
+                Prestamos Activos
+              </p>
+              <p className="mt-2 text-3xl font-bold text-gray-900">
+                {prestamosActivos}
+              </p>
+              <p className="mt-1 text-sm text-gray-400">
+                Saldo: {formatCurrency(saldoPrestamos)}
+              </p>
+            </div>
+            <div className="rounded-lg p-3 bg-info-500 group-hover:bg-info-400 transition-colors">
+              <Wallet className="h-6 w-6 text-white" />
+            </div>
+          </div>
+        </Link>
+
+        {/* Costo Patronal */}
+        <Link
+          href="/tss"
+          className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md hover:border-success-400 transition-all group"
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-500">
+                Costo Patronal
+              </p>
+              <p className="mt-2 text-3xl font-bold text-gray-900">
+                {costoPatronal.total > 0
+                  ? formatCurrency(costoPatronal.total)
+                  : "---"}
+              </p>
+              <p className="mt-1 text-sm text-gray-400">
+                AFP + SFS + SRL
+              </p>
+            </div>
+            <div className="rounded-lg p-3 bg-success-600 group-hover:bg-success-500 transition-colors">
+              <TrendingUp className="h-6 w-6 text-white" />
+            </div>
+          </div>
+        </Link>
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Charts section                                                      */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Nomina por quincena */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-cyan-500" />
+            Nomina por Quincena
+          </h2>
+          {nominaChartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={nominaChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                  tickLine={false}
+                  axisLine={{ stroke: "#E5E7EB" }}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v) =>
+                    v >= 1000000
+                      ? `${(v / 1000000).toFixed(1)}M`
+                      : v >= 1000
+                        ? `${(v / 1000).toFixed(0)}K`
+                        : String(v)
+                  }
+                />
+                <Tooltip content={<CurrencyTooltip />} />
+                <Legend
+                  wrapperStyle={{ fontSize: 12 }}
+                  iconType="circle"
+                  iconSize={8}
+                />
+                <Bar dataKey="Devengado" fill="#00B4D8" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Deducciones" fill="#F97316" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Neto" fill="#16A34A" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[300px] flex items-center justify-center text-gray-400 text-sm">
+              No hay datos de nomina disponibles
+            </div>
+          )}
+        </div>
+
+        {/* Distribucion por departamento */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <Users className="h-5 w-5 text-orange-500" />
+            Distribucion por Departamento
+          </h2>
+          {deptoChartData.length > 0 ? (
+            <div className="flex items-center gap-4">
+              <ResponsiveContainer width="60%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={deptoChartData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={3}
+                    dataKey="value"
+                    nameKey="name"
+                  >
+                    {deptoChartData.map((_, i) => (
+                      <Cell
+                        key={i}
+                        fill={CHART_COLORS[i % CHART_COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value) => {
+                      const v = Number(value ?? 0);
+                      return [`${v} empleado${v !== 1 ? "s" : ""}`, ""];
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex-1 space-y-2">
+                {deptoChartData.map((d, i) => (
+                  <div key={d.name} className="flex items-center gap-2 text-sm">
+                    <span
+                      className="w-3 h-3 rounded-full shrink-0"
+                      style={{
+                        backgroundColor:
+                          CHART_COLORS[i % CHART_COLORS.length],
+                      }}
+                    />
+                    <span className="text-gray-600 truncate">{d.name}</span>
+                    <span className="ml-auto font-semibold text-gray-900">
+                      {d.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="h-[300px] flex items-center justify-center text-gray-400 text-sm">
+              No hay datos de departamentos
+            </div>
+          )}
+        </div>
+
+        {/* Tendencia de costo */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-success-600" />
+            Tendencia Costo de Nomina
+          </h2>
+          {tendenciaData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={tendenciaData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                  tickLine={false}
+                  axisLine={{ stroke: "#E5E7EB" }}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v) =>
+                    v >= 1000000
+                      ? `${(v / 1000000).toFixed(1)}M`
+                      : v >= 1000
+                        ? `${(v / 1000).toFixed(0)}K`
+                        : String(v)
+                  }
+                />
+                <Tooltip content={<CurrencyTooltip />} />
+                <Legend
+                  wrapperStyle={{ fontSize: 12 }}
+                  iconType="circle"
+                  iconSize={8}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="Costo Nomina"
+                  stroke="#16A34A"
+                  strokeWidth={2}
+                  dot={{ fill: "#16A34A", r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[300px] flex items-center justify-center text-gray-400 text-sm">
+              No hay datos de tendencia
+            </div>
+          )}
+        </div>
+
+        {/* Horas extra por periodo */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-info-500" />
+            Horas Extra por Periodo
+          </h2>
+          {horasExtraData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={horasExtraData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                  tickLine={false}
+                  axisLine={{ stroke: "#E5E7EB" }}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip content={<HoursTooltip />} />
+                <Legend
+                  wrapperStyle={{ fontSize: 12 }}
+                  iconType="circle"
+                  iconSize={8}
+                />
+                <Bar dataKey="Diurnas" fill="#00B4D8" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Nocturnas" fill="#6366F1" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Feriados" fill="#F97316" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[300px] flex items-center justify-center text-gray-400 text-sm">
+              No hay datos de horas extra
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Quick actions + Alertas + Actividad reciente                        */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Quick actions */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <Activity className="h-5 w-5 text-cyan-500" />
+            Acciones Rapidas
+          </h2>
+          <div className="grid grid-cols-2 gap-3">
+            <Link
+              href="/nomina"
+              className="flex items-center gap-3 p-3 rounded-lg bg-orange-50 hover:bg-orange-100 transition-colors group"
+            >
+              <Calculator className="h-5 w-5 text-orange-500" />
+              <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">
+                Nueva Quincena
+              </span>
+            </Link>
+            <Link
+              href="/empleados/nuevo"
+              className="flex items-center gap-3 p-3 rounded-lg bg-cyan-50 hover:bg-cyan-100 transition-colors group"
+            >
+              <UserPlus className="h-5 w-5 text-cyan-500" />
+              <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">
+                Agregar Empleado
+              </span>
+            </Link>
+            <Link
+              href="/prestamos"
+              className="flex items-center gap-3 p-3 rounded-lg bg-info-50 hover:bg-info-100 transition-colors group"
+            >
+              <PlusCircle className="h-5 w-5 text-info-500" />
+              <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">
+                Nuevo Prestamo
+              </span>
+            </Link>
+            <Link
+              href="/reportes"
+              className="flex items-center gap-3 p-3 rounded-lg bg-success-50 hover:bg-success-100 transition-colors group"
+            >
+              <FileText className="h-5 w-5 text-success-600" />
+              <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">
+                Ver Reportes
+              </span>
+            </Link>
+            <Link
+              href="/tss"
+              className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors group"
+            >
+              <Shield className="h-5 w-5 text-gray-500" />
+              <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">
+                TSS
+              </span>
+            </Link>
+            <Link
+              href="/nomina"
+              className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors group"
+            >
+              <CreditCard className="h-5 w-5 text-gray-500" />
+              <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">
+                Comprobantes
+              </span>
+            </Link>
+          </div>
+        </div>
+
+        {/* Alertas */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-warning-500" />
+            Alertas
+            {totalAlertas > 0 && (
+              <span className="ml-auto inline-flex items-center justify-center h-6 w-6 rounded-full bg-warning-100 text-warning-500 text-xs font-bold">
+                {totalAlertas}
+              </span>
+            )}
+          </h2>
+          {totalAlertas === 0 ? (
+            <p className="text-sm text-gray-400 italic">
+              No hay alertas pendientes
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {alertas.empleadosProbacion > 0 && (
+                <Link
+                  href="/empleados"
+                  className="flex items-start gap-3 p-3 rounded-lg bg-warning-50 hover:bg-warning-100 transition-colors"
+                >
+                  <Users className="h-5 w-5 text-warning-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">
+                      Periodo de prueba
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {alertas.empleadosProbacion} empleado
+                      {alertas.empleadosProbacion !== 1 ? "s" : ""} finalizando
+                      periodo de prueba (60-90 dias)
+                    </p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-gray-400 ml-auto shrink-0 mt-0.5" />
+                </Link>
+              )}
+
+              {alertas.prestamosPorTerminar > 0 && (
+                <Link
+                  href="/prestamos"
+                  className="flex items-start gap-3 p-3 rounded-lg bg-info-50 hover:bg-info-100 transition-colors"
+                >
+                  <Wallet className="h-5 w-5 text-info-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">
+                      Prestamos por finalizar
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {alertas.prestamosPorTerminar} prestamo
+                      {alertas.prestamosPorTerminar !== 1 ? "s" : ""} con saldo
+                      restante de 2 cuotas o menos
+                    </p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-gray-400 ml-auto shrink-0 mt-0.5" />
+                </Link>
+              )}
+
+              {alertas.quincenasBorrador > 0 && (
+                <Link
+                  href="/nomina"
+                  className="flex items-start gap-3 p-3 rounded-lg bg-orange-50 hover:bg-orange-100 transition-colors"
+                >
+                  <CalendarDays className="h-5 w-5 text-orange-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">
+                      Quincenas en borrador
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {alertas.quincenasBorrador} quincena
+                      {alertas.quincenasBorrador !== 1 ? "s" : ""} pendiente
+                      {alertas.quincenasBorrador !== 1 ? "s" : ""} de procesar
+                    </p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-gray-400 ml-auto shrink-0 mt-0.5" />
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Actividad reciente */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-cyan-500" />
+            Actividad Reciente
+          </h2>
+          {actividadReciente.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">
+              No hay actividad reciente
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {actividadReciente.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <div className="h-9 w-9 rounded-full bg-cyan-100 flex items-center justify-center shrink-0">
+                    <span className="text-xs font-bold text-cyan-700">
+                      {item.empleado_nombre
+                        .split(" ")
+                        .map((n) => n[0])
+                        .slice(0, 2)
+                        .join("")}
+                    </span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-800 truncate">
+                      {item.empleado_nombre}
+                    </p>
+                    <p className="text-xs text-gray-400 truncate">
+                      {item.periodo}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-semibold text-gray-900">
+                      {formatCurrency(item.total_neto)}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {timeAgo(item.created_at)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -29,7 +29,7 @@ export function Navbar({ userName, userRole, onMenuToggle }: NavbarProps) {
         : "Empleado";
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-40 h-16 bg-navy-900 shadow-lg">
+    <header className="fixed top-0 left-0 right-0 z-40 h-16 bg-navy-900 shadow-lg print:hidden">
       <div className="flex h-full items-center justify-between px-4">
         {/* Left: menu + logo */}
         <div className="flex items-center gap-3">
@@ -45,15 +45,15 @@ export function Navbar({ userName, userRole, onMenuToggle }: NavbarProps) {
             <Image
               src="/logo-servimast.jpg"
               alt="SERVIMAST"
-              width={36}
-              height={36}
+              width={44}
+              height={44}
               className="rounded-lg"
             />
             <div className="hidden sm:block">
               <h1 className="text-white font-bold text-lg leading-tight">
                 SERVIMAST
               </h1>
-              <p className="text-cyan-400 text-xs">Nómina Quincenal</p>
+              <p className="text-cyan-400 text-xs">Sistema de Gestión de Nómina</p>
             </div>
           </div>
         </div>

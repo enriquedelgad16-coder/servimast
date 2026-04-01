@@ -107,8 +107,10 @@ export function EmpleadosTable({ empleados }: EmpleadosTableProps) {
                   <td className="px-4 py-3 font-mono text-gray-500">
                     {emp.numero_empleado}
                   </td>
-                  <td className="px-4 py-3 font-medium text-gray-900">
-                    {emp.apellido}, {emp.nombre}
+                  <td className="px-4 py-3 font-medium">
+                    <Link href={`/empleados/${emp.id}`} className="text-cyan-600 hover:text-cyan-700 hover:underline">
+                      {emp.apellido}, {emp.nombre}
+                    </Link>
                   </td>
                   <td className="px-4 py-3 font-mono text-gray-600">
                     {formatCedula(emp.cedula)}
