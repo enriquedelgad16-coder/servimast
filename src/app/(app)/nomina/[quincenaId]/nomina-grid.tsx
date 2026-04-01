@@ -6,7 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { calcularNomina } from "@/lib/calculations/nomina";
 import { formatCurrency } from "@/lib/utils";
-import { generatePDFReport } from "@/lib/pdf-utils";
+import { generatePDFReport, generateSectionedNominaPDF } from "@/lib/pdf-utils";
 import {
   ArrowLeft,
   UserPlus,
@@ -429,41 +429,36 @@ export function NominaGrid({
   }
 
   function handleExportPDF() {
-    const columns = ["Empleado", "No.", "Salario Base", "H.E. Diur.", "H.E. Noct.", "H.E. Fer.", "Inst. GPON", "Inst. Red", "Otros Ing.", "Devengado", "AFP", "SFS", "ISR", "Préstamos", "Deducciones", "NETO", "AFP Pat.", "SFS Pat.", "SRL Pat."];
-    const data = nominaItems.map((item) => [
-      item.empleado ? `${item.empleado.apellido}, ${item.empleado.nombre}` : "—",
-      item.empleado?.numero_empleado || "",
-      formatCurrency(item.salario_base_calc),
-      formatCurrency(item.monto_extras_diurnas),
-      formatCurrency(item.monto_extras_nocturnas),
-      formatCurrency(item.monto_extras_feriados),
-      formatCurrency(item.monto_instalaciones_gpon),
-      formatCurrency(item.monto_instalaciones_red),
-      formatCurrency(item.otros_ingresos),
-      formatCurrency(item.subtotal_devengado),
-      formatCurrency(item.afp_monto),
-      formatCurrency(item.sfs_monto),
-      formatCurrency(item.isr_monto),
-      formatCurrency(item.deduccion_prestamos),
-      formatCurrency(item.total_deducciones),
-      formatCurrency(item.total_neto),
-      formatCurrency(item.afp_patronal_monto),
-      formatCurrency(item.sfs_patronal_monto),
-      formatCurrency(item.srl_patronal_monto),
-    ]);
-    const totals = [
-      "TOTALES", `${nominaItems.length} emp.`,
-      formatCurrency(totalSalarioBase), formatCurrency(totalExtDiur), formatCurrency(totalExtNoct), formatCurrency(totalExtFer),
-      formatCurrency(totalInstGpon), formatCurrency(totalInstRed), formatCurrency(totalOtrosIng),
-      formatCurrency(totalDevengado), formatCurrency(totalAFP), formatCurrency(totalSFS), formatCurrency(totalISR),
-      formatCurrency(totalPrestamos), formatCurrency(totalDeducciones), formatCurrency(totalNeto),
-      formatCurrency(totalAFPPat), formatCurrency(totalSFSPat), formatCurrency(totalSRLPat),
-    ];
-    generatePDFReport({
+    const sectionItems = nominaItems.map((item) => ({
+      empleado: item.empleado ? `${item.empleado.apellido}, ${item.empleado.nombre}` : "—",
+      numero: item.empleado?.numero_empleado || "",
+      salarioBase: Number(item.salario_base_calc),
+      heD: Number(item.monto_extras_diurnas),
+      heN: Number(item.monto_extras_nocturnas),
+      heF: Number(item.monto_extras_feriados),
+      instGpon: Number(item.monto_instalaciones_gpon),
+      instRed: Number(item.monto_instalaciones_red),
+      metas: Number(item.metas_cumplimiento),
+      otrosIng: Number(item.otros_ingresos),
+      descOtrosIng: item.descripcion_otros_ingresos || "",
+      subtotalDevengado: Number(item.subtotal_devengado),
+      afp: Number(item.afp_monto),
+      sfs: Number(item.sfs_monto),
+      isr: Number(item.isr_monto),
+      prestamos: Number(item.deduccion_prestamos),
+      faltas: Number(item.deduccion_por_faltas),
+      otrosDesc: Number(item.otros_descuentos),
+      totalDeducciones: Number(item.total_deducciones),
+      totalNeto: Number(item.total_neto),
+      afpPat: Number(item.afp_patronal_monto),
+      sfsPat: Number(item.sfs_patronal_monto),
+      srlPat: Number(item.srl_patronal_monto),
+    }));
+    generateSectionedNominaPDF({
       title: "Nómina Quincenal",
       subtitle: quincena.descripcion || undefined,
       periodo: `${quincena.periodo_inicio} — ${quincena.periodo_fin}`,
-      columns, data, totals, orientation: "landscape",
+      items: sectionItems,
       fileName: `Nomina_${quincena.periodo_inicio}_${quincena.periodo_fin}.pdf`,
     });
   }

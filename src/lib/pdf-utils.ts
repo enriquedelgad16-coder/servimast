@@ -139,6 +139,305 @@ export async function generatePDFReport({
   doc.save(fileName || `${title.replace(/\s+/g, "_")}_${today}.pdf`);
 }
 
+// ---------------------------------------------------------------------------
+// Sectioned Nomina PDF — prints nomina in readable sections
+// ---------------------------------------------------------------------------
+
+interface NominaSectionItem {
+  empleado: string;
+  numero: string;
+  salarioBase: number;
+  heD: number;
+  heN: number;
+  heF: number;
+  instGpon: number;
+  instRed: number;
+  metas: number;
+  otrosIng: number;
+  descOtrosIng: string;
+  subtotalDevengado: number;
+  afp: number;
+  sfs: number;
+  isr: number;
+  prestamos: number;
+  faltas: number;
+  otrosDesc: number;
+  totalDeducciones: number;
+  totalNeto: number;
+  afpPat: number;
+  sfsPat: number;
+  srlPat: number;
+}
+
+interface SectionedNominaOptions {
+  title: string;
+  subtitle?: string;
+  periodo: string;
+  items: NominaSectionItem[];
+  fileName?: string;
+}
+
+export async function generateSectionedNominaPDF({
+  title,
+  subtitle,
+  periodo,
+  items,
+  fileName,
+}: SectionedNominaOptions) {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const fc = (n: number) => `RD$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // Load logo
+  let logoImg: HTMLImageElement | null = null;
+  try {
+    logoImg = await loadImage("/logo-servimast.jpg");
+  } catch { /* continue */ }
+
+  function addHeader() {
+    if (logoImg) doc.addImage(logoImg, "JPEG", 14, 10, 18, 18);
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0);
+    doc.text("SERVIMAST JPM", logoImg ? 36 : 14, 18);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100);
+    doc.text("Sistema de Seguridad y Redes", logoImg ? 36 : 14, 23);
+    doc.text("RNC: 000-00000-0 | Tel: (809) 000-0000", logoImg ? 36 : 14, 27);
+
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0);
+    doc.text(title, pageWidth - 14, 18, { align: "right" });
+    if (subtitle) {
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(80);
+      doc.text(subtitle, pageWidth - 14, 23, { align: "right" });
+    }
+    doc.setFontSize(8);
+    doc.setTextColor(100);
+    doc.text(`Período: ${periodo}`, pageWidth - 14, subtitle ? 27 : 23, { align: "right" });
+    doc.setDrawColor(0, 150, 200);
+    doc.setLineWidth(0.8);
+    doc.line(14, 32, pageWidth - 14, 32);
+    doc.setFontSize(7);
+    doc.setTextColor(140);
+    doc.text(`Generado: ${new Date().toLocaleString("es-DO")}`, pageWidth - 14, 36, { align: "right" });
+  }
+
+  function addSectionTitle(y: number, text: string): number {
+    if (y > doc.internal.pageSize.getHeight() - 40) {
+      doc.addPage();
+      addHeader();
+      y = 42;
+    }
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(15, 30, 50);
+    doc.text(text, 14, y);
+    doc.setDrawColor(15, 30, 50);
+    doc.setLineWidth(0.3);
+    doc.line(14, y + 1, pageWidth - 14, y + 1);
+    return y + 4;
+  }
+
+  const headStyle = {
+    fillColor: [15, 30, 50] as [number, number, number],
+    textColor: [255, 255, 255] as [number, number, number],
+    fontStyle: "bold" as const,
+    fontSize: 8,
+    halign: "center" as const,
+  };
+
+  const totalRowStyle = (hookData: { section: string; row: { index: number }; cell: { styles: Record<string, unknown> } }, dataLen: number) => {
+    if (hookData.section === "body" && hookData.row.index === dataLen) {
+      hookData.cell.styles.fillColor = [15, 30, 50];
+      hookData.cell.styles.textColor = [255, 255, 255];
+      hookData.cell.styles.fontStyle = "bold";
+    }
+  };
+
+  // ── Totals ──
+  const sum = (fn: (i: NominaSectionItem) => number) => items.reduce((s, i) => s + fn(i), 0);
+  const tSalBase = sum(i => i.salarioBase);
+  const tRemuneraciones = sum(i => i.heD + i.heN + i.heF + i.instGpon + i.instRed + i.metas + i.otrosIng);
+  const tDevengado = sum(i => i.subtotalDevengado);
+  const tDeducciones = sum(i => i.totalDeducciones);
+  const tNeto = sum(i => i.totalNeto);
+
+  // ═══════════════════════════════════════════════════
+  // SECTION 1: Resumen General
+  // ═══════════════════════════════════════════════════
+  addHeader();
+  let startY = addSectionTitle(42, "1. RESUMEN GENERAL DE NÓMINA");
+
+  const resumenData = items.map(i => {
+    const totalRemuneraciones = i.heD + i.heN + i.heF + i.instGpon + i.instRed + i.metas + i.otrosIng;
+    return [
+      i.empleado, i.numero,
+      fc(i.salarioBase), fc(totalRemuneraciones),
+      fc(i.subtotalDevengado), fc(i.totalDeducciones), fc(i.totalNeto),
+    ];
+  });
+  const resumenTotals = [
+    "TOTALES", `${items.length}`,
+    fc(tSalBase), fc(tRemuneraciones), fc(tDevengado), fc(tDeducciones), fc(tNeto),
+  ];
+
+  autoTable(doc, {
+    startY,
+    head: [["Empleado", "No.", "Salario Base", "Remuneraciones", "Devengado", "Deducciones", "NETO"]],
+    body: [...resumenData, resumenTotals],
+    theme: "grid",
+    headStyles: headStyle,
+    bodyStyles: { fontSize: 8, cellPadding: 2 },
+    alternateRowStyles: { fillColor: [245, 248, 250] },
+    styles: { lineWidth: 0.1, lineColor: [200, 200, 200] },
+    columnStyles: {
+      0: { cellWidth: 50 },
+      2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" },
+      5: { halign: "right" }, 6: { halign: "right" },
+    },
+    didParseCell: (h) => totalRowStyle(h, resumenData.length),
+    margin: { left: 14, right: 14 },
+  });
+
+  // ═══════════════════════════════════════════════════
+  // SECTION 2: Remuneraciones y Comisiones
+  // ═══════════════════════════════════════════════════
+  doc.addPage();
+  addHeader();
+  startY = addSectionTitle(42, "2. REMUNERACIONES, COMISIONES Y HORAS EXTRAS");
+
+  const remuData = items.map(i => [
+    i.empleado, i.numero,
+    fc(i.heD), fc(i.heN), fc(i.heF),
+    fc(i.instGpon), fc(i.instRed), fc(i.metas), fc(i.otrosIng),
+    i.descOtrosIng || "—",
+    fc(i.heD + i.heN + i.heF + i.instGpon + i.instRed + i.metas + i.otrosIng),
+  ]);
+  const remuTotals = [
+    "TOTALES", "",
+    fc(sum(i => i.heD)), fc(sum(i => i.heN)), fc(sum(i => i.heF)),
+    fc(sum(i => i.instGpon)), fc(sum(i => i.instRed)), fc(sum(i => i.metas)), fc(sum(i => i.otrosIng)),
+    "", fc(tRemuneraciones),
+  ];
+
+  autoTable(doc, {
+    startY,
+    head: [["Empleado", "No.", "H.E. Diur.", "H.E. Noct.", "H.E. Fer.", "Inst. GPON", "Inst. Red", "Metas", "Otros Ing.", "Concepto", "Total Rem."]],
+    body: [...remuData, remuTotals],
+    theme: "grid",
+    headStyles: { ...headStyle, fontSize: 7 },
+    bodyStyles: { fontSize: 7, cellPadding: 1.5 },
+    alternateRowStyles: { fillColor: [245, 248, 250] },
+    styles: { lineWidth: 0.1, lineColor: [200, 200, 200] },
+    columnStyles: {
+      0: { cellWidth: 38 },
+      9: { cellWidth: 30, fontSize: 6 },
+      2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" },
+      5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" },
+      8: { halign: "right" }, 10: { halign: "right" },
+    },
+    didParseCell: (h) => totalRowStyle(h, remuData.length),
+    margin: { left: 14, right: 14 },
+  });
+
+  // ═══════════════════════════════════════════════════
+  // SECTION 3: Deducciones del Empleado
+  // ═══════════════════════════════════════════════════
+  doc.addPage();
+  addHeader();
+  startY = addSectionTitle(42, "3. DEDUCCIONES DEL EMPLEADO");
+
+  const dedData = items.map(i => [
+    i.empleado, i.numero,
+    fc(i.afp), fc(i.sfs), fc(i.isr), fc(i.prestamos), fc(i.faltas), fc(i.otrosDesc),
+    fc(i.totalDeducciones),
+  ]);
+  const dedTotals = [
+    "TOTALES", "",
+    fc(sum(i => i.afp)), fc(sum(i => i.sfs)), fc(sum(i => i.isr)),
+    fc(sum(i => i.prestamos)), fc(sum(i => i.faltas)), fc(sum(i => i.otrosDesc)),
+    fc(tDeducciones),
+  ];
+
+  autoTable(doc, {
+    startY,
+    head: [["Empleado", "No.", "AFP (2.87%)", "SFS (3.04%)", "ISR", "Préstamos", "Faltas", "Otros Desc.", "Total Ded."]],
+    body: [...dedData, dedTotals],
+    theme: "grid",
+    headStyles: headStyle,
+    bodyStyles: { fontSize: 8, cellPadding: 2 },
+    alternateRowStyles: { fillColor: [245, 248, 250] },
+    styles: { lineWidth: 0.1, lineColor: [200, 200, 200] },
+    columnStyles: {
+      0: { cellWidth: 50 },
+      2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" },
+      5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" },
+      8: { halign: "right" },
+    },
+    didParseCell: (h) => totalRowStyle(h, dedData.length),
+    margin: { left: 14, right: 14 },
+  });
+
+  // ═══════════════════════════════════════════════════
+  // SECTION 4: Aportes Patronales
+  // ═══════════════════════════════════════════════════
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const prevY = (doc as any).lastAutoTable?.finalY || 42;
+  startY = addSectionTitle(prevY + 10, "4. APORTES PATRONALES");
+
+  const patData = items.map(i => [
+    i.empleado, i.numero,
+    fc(i.afpPat), fc(i.sfsPat), fc(i.srlPat),
+    fc(i.afpPat + i.sfsPat + i.srlPat),
+  ]);
+  const tAfpPat = sum(i => i.afpPat);
+  const tSfsPat = sum(i => i.sfsPat);
+  const tSrlPat = sum(i => i.srlPat);
+  const patTotals = [
+    "TOTALES", "",
+    fc(tAfpPat), fc(tSfsPat), fc(tSrlPat), fc(tAfpPat + tSfsPat + tSrlPat),
+  ];
+
+  autoTable(doc, {
+    startY,
+    head: [["Empleado", "No.", "AFP Pat. (7.10%)", "SFS Pat. (7.09%)", "SRL Pat. (1.20%)", "Total Patronal"]],
+    body: [...patData, patTotals],
+    theme: "grid",
+    headStyles: headStyle,
+    bodyStyles: { fontSize: 8, cellPadding: 2 },
+    alternateRowStyles: { fillColor: [245, 248, 250] },
+    styles: { lineWidth: 0.1, lineColor: [200, 200, 200] },
+    columnStyles: {
+      0: { cellWidth: 50 },
+      2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" },
+      5: { halign: "right" },
+    },
+    didParseCell: (h) => totalRowStyle(h, patData.length),
+    margin: { left: 14, right: 14 },
+  });
+
+  // ── Footer on all pages ──
+  const pageCount = doc.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    const pageHeight = doc.internal.pageSize.getHeight();
+    doc.setFontSize(7);
+    doc.setTextColor(150);
+    doc.text(
+      `SERVIMAST JPM - Sistema de Gestión de Nómina | Página ${i} de ${pageCount}`,
+      pageWidth / 2, pageHeight - 8, { align: "center" }
+    );
+  }
+
+  const today = new Date().toISOString().split("T")[0];
+  doc.save(fileName || `Nomina_Secciones_${today}.pdf`);
+}
+
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
