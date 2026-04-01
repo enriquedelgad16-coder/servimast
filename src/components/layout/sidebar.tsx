@@ -107,9 +107,10 @@ interface SidebarProps {
   userRole: RolUsuario;
   collapsed: boolean;
   onToggle: () => void;
+  onNavigate?: () => void;
 }
 
-export function Sidebar({ userRole, collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ userRole, collapsed, onToggle, onNavigate }: SidebarProps) {
   const pathname = usePathname();
 
   const filteredItems = NAV_ITEMS.filter((item) =>
@@ -134,6 +135,7 @@ export function Sidebar({ userRole, collapsed, onToggle }: SidebarProps) {
               <li key={item.href}>
                 <Link
                   href={item.href}
+                  onClick={() => onNavigate?.()}
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                     isActive

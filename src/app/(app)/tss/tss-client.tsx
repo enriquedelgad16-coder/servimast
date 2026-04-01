@@ -4,13 +4,18 @@ import { useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatCurrency, formatCedula } from "@/lib/utils";
 import type { Empleado, NominaItem } from "@/types";
+import { generatePDFReport } from "@/lib/pdf-utils";
+import { PrintHeader } from "@/components/ui/print-header";
 import {
   FileSpreadsheet,
+  FileText,
   Download,
   Loader2,
+  Printer,
   ShieldCheck,
   Building2,
   Users,
+  DollarSign,
 } from "lucide-react";
 
 // TSS contribution rates (Dominican Republic)
@@ -56,6 +61,7 @@ export default function TssClient() {
   const [ano, setAno] = useState(now.getFullYear());
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [nominaItems, setNominaItems] = useState<
     (NominaItem & { empleado?: Empleado })[]
   >([]);
@@ -172,6 +178,9 @@ export default function TssClient() {
     );
   }, [rows]);
 
+  // Total costo patronal
+  const totalCostoPatronal = totals.afpPat + totals.sfsPat + totals.srlPat;
+
   // Export to Excel
   async function handleExport() {
     setExporting(true);
@@ -251,8 +260,77 @@ export default function TssClient() {
     }
   }
 
+  // Export to PDF
+  async function handleExportPdf() {
+    setExportingPdf(true);
+    try {
+      const columns = [
+        "Empleado",
+        "Cedula",
+        "Salario Cotizable",
+        `AFP Emp. (${TSS_RATES.AFP_EMPLEADO}%)`,
+        `SFS Emp. (${TSS_RATES.SFS_EMPLEADO}%)`,
+        `AFP Pat. (${TSS_RATES.AFP_PATRONAL}%)`,
+        `SFS Pat. (${TSS_RATES.SFS_PATRONAL}%)`,
+        `SRL Pat. (${TSS_RATES.SRL_PATRONAL}%)`,
+        "Costo Patronal",
+      ];
+
+      const data = rows.map((r) => [
+        `${r.apellido}, ${r.nombre}`,
+        formatCedula(r.cedula),
+        formatCurrency(r.salario_cotizable),
+        formatCurrency(r.afp_empleado),
+        formatCurrency(r.sfs_empleado),
+        formatCurrency(r.afp_patronal),
+        formatCurrency(r.sfs_patronal),
+        formatCurrency(r.srl_patronal),
+        formatCurrency(r.afp_patronal + r.sfs_patronal + r.srl_patronal),
+      ]);
+
+      const pdfTotals = [
+        "TOTALES",
+        `${rows.length} emp.`,
+        formatCurrency(totals.salario),
+        formatCurrency(totals.afpEmp),
+        formatCurrency(totals.sfsEmp),
+        formatCurrency(totals.afpPat),
+        formatCurrency(totals.sfsPat),
+        formatCurrency(totals.srlPat),
+        formatCurrency(totalCostoPatronal),
+      ];
+
+      await generatePDFReport({
+        title: "Reporte TSS",
+        subtitle: "Tesoreria de la Seguridad Social",
+        periodo: `${MESES[mes - 1]} ${ano}`,
+        columns,
+        data,
+        totals: pdfTotals,
+        orientation: "landscape",
+        fileName: `TSS_${MESES[mes - 1]}_${ano}.pdf`,
+      });
+    } catch (err) {
+      console.error("Error exporting PDF:", err);
+    } finally {
+      setExportingPdf(false);
+    }
+  }
+
+  // Print
+  function handlePrint() {
+    window.print();
+  }
+
   return (
     <>
+      {/* Print header - hidden on screen, visible on print */}
+      <PrintHeader
+        title="Reporte TSS"
+        subtitle="Tesoreria de la Seguridad Social"
+        periodo={`${MESES[mes - 1]} ${ano}`}
+      />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
@@ -313,21 +391,66 @@ export default function TssClient() {
             {loading ? "Generando..." : "Generar Reporte"}
           </button>
           {loaded && rows.length > 0 && (
-            <button
-              onClick={handleExport}
-              disabled={exporting}
-              className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold px-5 py-2 rounded-lg transition-colors disabled:opacity-50 shadow-sm"
-            >
-              {exporting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4" />
-              )}
-              Exportar Excel
-            </button>
+            <>
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold px-5 py-2 rounded-lg transition-colors disabled:opacity-50 shadow-sm"
+              >
+                {exporting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                Exportar Excel
+              </button>
+              <button
+                onClick={handleExportPdf}
+                disabled={exportingPdf}
+                className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2 rounded-lg transition-colors disabled:opacity-50 shadow-sm"
+              >
+                {exportingPdf ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="h-4 w-4" />
+                )}
+                Exportar PDF
+              </button>
+              <button
+                onClick={handlePrint}
+                className="inline-flex items-center gap-2 bg-gray-600 hover:bg-gray-700 text-white font-semibold px-5 py-2 rounded-lg transition-colors shadow-sm"
+              >
+                <Printer className="h-4 w-4" />
+                Imprimir
+              </button>
+            </>
           )}
         </div>
       </div>
+
+      {/* Total Costo Patronal - prominent card */}
+      {loaded && rows.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm mb-6">
+          <div className="flex items-center gap-4">
+            <div className="bg-orange-50 rounded-lg p-3">
+              <DollarSign className="h-7 w-7 text-orange-500" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-500 font-medium">
+                Total Costo Patronal — {MESES[mes - 1]} {ano}
+              </p>
+              <p className="text-2xl font-bold text-gray-900 font-mono">
+                {formatCurrency(totalCostoPatronal)}
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                AFP Pat: {formatCurrency(totals.afpPat)} + SFS Pat:{" "}
+                {formatCurrency(totals.sfsPat)} + SRL Pat:{" "}
+                {formatCurrency(totals.srlPat)}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary cards */}
       {loaded && rows.length > 0 && (
@@ -414,13 +537,16 @@ export default function TssClient() {
                   <th className="text-right px-4 py-3 font-medium text-gray-500">
                     SRL Pat.
                   </th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-500">
+                    Costo Patronal
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {rows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       className="text-center py-12 text-gray-400"
                     >
                       <FileSpreadsheet className="h-12 w-12 mx-auto mb-3 text-gray-300" />
@@ -461,6 +587,11 @@ export default function TssClient() {
                         <td className="px-4 py-3 text-right font-mono text-cyan-700">
                           {formatCurrency(r.srl_patronal)}
                         </td>
+                        <td className="px-4 py-3 text-right font-mono font-semibold text-orange-600">
+                          {formatCurrency(
+                            r.afp_patronal + r.sfs_patronal + r.srl_patronal
+                          )}
+                        </td>
                       </tr>
                     ))}
                     {/* Totals row */}
@@ -486,6 +617,9 @@ export default function TssClient() {
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-cyan-800">
                         {formatCurrency(totals.srlPat)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono font-bold text-orange-700">
+                        {formatCurrency(totalCostoPatronal)}
                       </td>
                     </tr>
                   </>

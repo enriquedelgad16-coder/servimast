@@ -135,9 +135,57 @@ export function NominaGrid({
     try {
       const supabase = createClient();
       const updateData: Record<string, unknown> = { estado: nuevoEstado };
-      if (nuevoEstado === "pagada") updateData.fecha_pago = new Date().toISOString().split("T")[0];
+      if (nuevoEstado === "pagada") {
+        updateData.fecha_pago = new Date().toISOString().split("T")[0];
+      }
       const { error } = await supabase.from("quincenas").update(updateData).eq("id", quincena.id);
       if (error) throw error;
+
+      // When marking as paid, update loan balances
+      if (nuevoEstado === "pagada") {
+        for (const item of nominaItems) {
+          if (Number(item.deduccion_prestamos) > 0) {
+            // Get active loans for this employee
+            const { data: prestamos } = await supabase
+              .from("prestamos")
+              .select("id, cuota_quincenal, saldo_pendiente, numero_cuotas_pagadas")
+              .eq("empleado_id", item.empleado_id)
+              .eq("estado", "activo")
+              .order("fecha_inicio", { ascending: true });
+
+            if (prestamos) {
+              for (const p of prestamos) {
+                const cuota = Math.min(p.cuota_quincenal, p.saldo_pendiente);
+                if (cuota <= 0) continue;
+                const nuevoSaldo = Math.max(0, p.saldo_pendiente - cuota);
+                const nuevasCuotas = (p.numero_cuotas_pagadas || 0) + 1;
+                await supabase.from("prestamos").update({
+                  saldo_pendiente: nuevoSaldo,
+                  numero_cuotas_pagadas: nuevasCuotas,
+                  ...(nuevoSaldo <= 0 ? { estado: "pagado", fecha_cierre: new Date().toISOString().split("T")[0] } : {}),
+                }).eq("id", p.id);
+
+                // Record payment in pagos_prestamos if table exists
+                try {
+                  await supabase.from("pagos_prestamos").insert({
+                    prestamo_id: p.id,
+                    nomina_item_id: item.id,
+                    quincena_id: quincena.id,
+                    monto_pagado: cuota,
+                    saldo_antes: p.saldo_pendiente,
+                    saldo_despues: nuevoSaldo,
+                    numero_cuota: nuevasCuotas,
+                    fecha_pago: new Date().toISOString().split("T")[0],
+                  });
+                } catch {
+                  // pagos_prestamos table may not exist yet
+                }
+              }
+            }
+          }
+        }
+      }
+
       router.refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Error al cambiar estado");
@@ -145,27 +193,31 @@ export function NominaGrid({
   }
 
   function handleExportPDF() {
-    const columns = ["Empleado", "No.", "Salario Base", "H.E. Diur.", "H.E. Noct.", "H.E. Fer.", "Devengado", "AFP", "SFS", "ISR", "Préstamos", "Deducciones", "NETO"];
+    const columns = ["Empleado", "No.", "Salario Base", "H.E. Diur.", "H.E. Noct.", "H.E. Fer.", "Devengado", "AFP", "SFS", "ISR", "Préstamos", "Deducciones", "NETO", "AFP Pat.", "SFS Pat.", "SRL Pat."];
     const data = nominaItems.map((item) => [
       item.empleado ? `${item.empleado.apellido}, ${item.empleado.nombre}` : "—",
       item.empleado?.numero_empleado || "",
-      Number(item.salario_base_calc).toFixed(2),
-      Number(item.monto_extras_diurnas).toFixed(2),
-      Number(item.monto_extras_nocturnas).toFixed(2),
-      Number(item.monto_extras_feriados).toFixed(2),
-      Number(item.subtotal_devengado).toFixed(2),
-      Number(item.afp_monto).toFixed(2),
-      Number(item.sfs_monto).toFixed(2),
-      Number(item.isr_monto).toFixed(2),
-      Number(item.deduccion_prestamos).toFixed(2),
-      Number(item.total_deducciones).toFixed(2),
-      Number(item.total_neto).toFixed(2),
+      formatCurrency(item.salario_base_calc),
+      formatCurrency(item.monto_extras_diurnas),
+      formatCurrency(item.monto_extras_nocturnas),
+      formatCurrency(item.monto_extras_feriados),
+      formatCurrency(item.subtotal_devengado),
+      formatCurrency(item.afp_monto),
+      formatCurrency(item.sfs_monto),
+      formatCurrency(item.isr_monto),
+      formatCurrency(item.deduccion_prestamos),
+      formatCurrency(item.total_deducciones),
+      formatCurrency(item.total_neto),
+      formatCurrency(item.afp_patronal_monto),
+      formatCurrency(item.sfs_patronal_monto),
+      formatCurrency(item.srl_patronal_monto),
     ]);
     const totals = [
       "TOTALES", `${nominaItems.length} emp.`,
-      totalSalarioBase.toFixed(2), totalExtDiur.toFixed(2), totalExtNoct.toFixed(2), totalExtFer.toFixed(2),
-      totalDevengado.toFixed(2), totalAFP.toFixed(2), totalSFS.toFixed(2), totalISR.toFixed(2),
-      totalPrestamos.toFixed(2), totalDeducciones.toFixed(2), totalNeto.toFixed(2),
+      formatCurrency(totalSalarioBase), formatCurrency(totalExtDiur), formatCurrency(totalExtNoct), formatCurrency(totalExtFer),
+      formatCurrency(totalDevengado), formatCurrency(totalAFP), formatCurrency(totalSFS), formatCurrency(totalISR),
+      formatCurrency(totalPrestamos), formatCurrency(totalDeducciones), formatCurrency(totalNeto),
+      formatCurrency(totalAFPPat), formatCurrency(totalSFSPat), formatCurrency(totalSRLPat),
     ];
     generatePDFReport({
       title: "Nómina Quincenal",
@@ -180,17 +232,20 @@ export function NominaGrid({
     const excelData = nominaItems.map((item) => ({
       "Empleado": item.empleado ? `${item.empleado.apellido}, ${item.empleado.nombre}` : "",
       "No. Empleado": item.empleado?.numero_empleado || "",
-      "Salario Base": Number(item.salario_base_calc),
-      "H.E. Diurnas": Number(item.monto_extras_diurnas),
-      "H.E. Nocturnas": Number(item.monto_extras_nocturnas),
-      "H.E. Feriados": Number(item.monto_extras_feriados),
-      "Devengado": Number(item.subtotal_devengado),
-      "AFP": Number(item.afp_monto),
-      "SFS": Number(item.sfs_monto),
-      "ISR": Number(item.isr_monto),
-      "Préstamos": Number(item.deduccion_prestamos),
-      "Total Deducciones": Number(item.total_deducciones),
-      "Total Neto": Number(item.total_neto),
+      "Salario Base": formatCurrency(item.salario_base_calc),
+      "H.E. Diurnas": formatCurrency(item.monto_extras_diurnas),
+      "H.E. Nocturnas": formatCurrency(item.monto_extras_nocturnas),
+      "H.E. Feriados": formatCurrency(item.monto_extras_feriados),
+      "Devengado": formatCurrency(item.subtotal_devengado),
+      "AFP (2.87%)": formatCurrency(item.afp_monto),
+      "SFS (3.04%)": formatCurrency(item.sfs_monto),
+      "ISR": formatCurrency(item.isr_monto),
+      "Préstamos": formatCurrency(item.deduccion_prestamos),
+      "Total Deducciones": formatCurrency(item.total_deducciones),
+      "Total Neto": formatCurrency(item.total_neto),
+      "AFP Patronal (7.10%)": formatCurrency(item.afp_patronal_monto),
+      "SFS Patronal (7.09%)": formatCurrency(item.sfs_patronal_monto),
+      "SRL Patronal (1.20%)": formatCurrency(item.srl_patronal_monto),
     }));
     const ws = XLSX.utils.json_to_sheet(excelData);
     const wb = XLSX.utils.book_new();

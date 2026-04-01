@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Download, Printer, FileSpreadsheet, FileText, X, Filter } from "lucide-react";
 import { generatePDFReport } from "@/lib/pdf-utils";
+import { formatCurrency } from "@/lib/utils";
 import * as XLSX from "xlsx";
 
 interface ReportViewerProps {
@@ -14,6 +15,9 @@ interface ReportViewerProps {
   totals?: Record<string, unknown>;
   onClose?: () => void;
   filters?: React.ReactNode;
+  onRowClick?: (row: Record<string, unknown>, index: number) => void;
+  renderExpandedRow?: (row: Record<string, unknown>, index: number) => React.ReactNode;
+  rowClickHint?: string;
 }
 
 export function ReportViewer({
@@ -25,17 +29,18 @@ export function ReportViewer({
   totals,
   onClose,
   filters,
+  onRowClick,
+  renderExpandedRow,
+  rowClickHint,
 }: ReportViewerProps) {
   const [showFilters, setShowFilters] = useState(false);
 
   function formatValue(val: unknown): string {
     if (val === null || val === undefined) return "—";
     if (typeof val === "number") {
+      // Format monetary values with RD$ (values with decimals or >= 100)
       if (val >= 100 || String(val).includes(".")) {
-        return new Intl.NumberFormat("es-DO", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        }).format(val);
+        return formatCurrency(val);
       }
       return String(val);
     }
@@ -47,13 +52,13 @@ export function ReportViewer({
     const rows = data.map((row) =>
       columns.map((c) => {
         const val = row[c.key];
-        return typeof val === "number" ? val : formatValue(val);
+        return formatValue(val);
       })
     );
     const totalRow = totals
       ? columns.map((c) => {
           const val = totals[c.key];
-          return typeof val === "number" ? val : formatValue(val);
+          return formatValue(val);
         })
       : undefined;
 
@@ -72,7 +77,13 @@ export function ReportViewer({
     const excelData = data.map((row) => {
       const obj: Record<string, unknown> = {};
       columns.forEach((c) => {
-        obj[c.label] = row[c.key] ?? "";
+        const val = row[c.key];
+        // Format numbers as RD$ strings in Excel too
+        if (typeof val === "number" && (val >= 100 || String(val).includes("."))) {
+          obj[c.label] = formatCurrency(val);
+        } else {
+          obj[c.label] = val ?? "";
+        }
       });
       return obj;
     });
@@ -80,7 +91,12 @@ export function ReportViewer({
     if (totals) {
       const totalObj: Record<string, unknown> = {};
       columns.forEach((c) => {
-        totalObj[c.label] = totals[c.key] ?? "";
+        const val = totals[c.key];
+        if (typeof val === "number" && (val >= 100 || String(val).includes("."))) {
+          totalObj[c.label] = formatCurrency(val);
+        } else {
+          totalObj[c.label] = val ?? "";
+        }
       });
       excelData.push(totalObj);
     }
@@ -91,8 +107,8 @@ export function ReportViewer({
 
     const colWidths = columns.map((c) => ({
       wch: Math.max(
-        c.label.length,
-        ...data.map((row) => String(row[c.key] ?? "").length)
+        c.label.length + 4,
+        ...data.map((row) => String(formatValue(row[c.key])).length + 2)
       ),
     }));
     ws["!cols"] = colWidths;
@@ -108,9 +124,9 @@ export function ReportViewer({
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 bg-gray-50 print:hidden">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 bg-gray-50 print:hidden">
         <div>
-          <h3 className="font-semibold text-gray-900">{title}</h3>
+          <h3 className="font-semibold text-gray-900 text-base sm:text-lg">{title}</h3>
           {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
           {periodo && (
             <p className="text-xs text-gray-400">Período: {periodo}</p>
@@ -119,7 +135,7 @@ export function ReportViewer({
             {data.length} registro{data.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {filters && (
             <button
               onClick={() => setShowFilters(!showFilters)}
@@ -207,6 +223,13 @@ export function ReportViewer({
         </div>
       </div>
 
+      {/* Row click hint */}
+      {rowClickHint && (
+        <div className="px-4 py-2 bg-cyan-50 text-cyan-700 text-xs border-b border-cyan-100 print:hidden">
+          {rowClickHint}
+        </div>
+      )}
+
       {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -241,25 +264,29 @@ export function ReportViewer({
               </tr>
             ) : (
               data.map((row, i) => (
-                <tr
-                  key={i}
-                  className="hover:bg-gray-50 print:hover:bg-transparent even:bg-gray-50/50"
-                >
-                  {columns.map((col) => (
-                    <td
-                      key={col.key}
-                      className={`px-4 py-2 ${
-                        col.align === "right"
-                          ? "text-right font-mono"
-                          : col.align === "center"
-                            ? "text-center"
-                            : "text-left"
-                      }`}
-                    >
-                      {formatValue(row[col.key])}
-                    </td>
-                  ))}
-                </tr>
+                <>
+                  <tr
+                    key={i}
+                    className={`hover:bg-gray-50 print:hover:bg-transparent even:bg-gray-50/50 ${onRowClick ? "cursor-pointer" : ""}`}
+                    onClick={onRowClick ? () => onRowClick(row, i) : undefined}
+                  >
+                    {columns.map((col) => (
+                      <td
+                        key={col.key}
+                        className={`px-4 py-2 ${
+                          col.align === "right"
+                            ? "text-right font-mono"
+                            : col.align === "center"
+                              ? "text-center"
+                              : "text-left"
+                        }`}
+                      >
+                        {formatValue(row[col.key])}
+                      </td>
+                    ))}
+                  </tr>
+                  {renderExpandedRow?.(row, i)}
+                </>
               ))
             )}
             {totals && data.length > 0 && (

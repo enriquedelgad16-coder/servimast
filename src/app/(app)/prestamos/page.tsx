@@ -43,6 +43,7 @@ export default async function PrestamosPage() {
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Empleado</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Monto Total</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Cuota Quinc.</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-500">Pagado</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Saldo Pend.</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-500">Cuotas</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-500">Fecha Inicio</th>
@@ -52,7 +53,7 @@ export default async function PrestamosPage() {
             <tbody className="divide-y divide-gray-100">
               {(!prestamos || prestamos.length === 0) ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-12 text-gray-400">
+                  <td colSpan={8} className="text-center py-12 text-gray-400">
                     <Wallet className="h-12 w-12 mx-auto mb-3 text-gray-300" />
                     <p>No hay préstamos registrados</p>
                   </td>
@@ -68,7 +69,8 @@ export default async function PrestamosPage() {
                       </td>
                       <td className="px-4 py-3 text-right font-mono">{formatCurrency(p.monto_total)}</td>
                       <td className="px-4 py-3 text-right font-mono">{formatCurrency(p.cuota_quincenal)}</td>
-                      <td className="px-4 py-3 text-right font-mono font-semibold">{formatCurrency(p.saldo_pendiente)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-success-600">{formatCurrency(p.monto_total - p.saldo_pendiente)}</td>
+                      <td className="px-4 py-3 text-right font-mono font-semibold text-danger-600">{formatCurrency(p.saldo_pendiente)}</td>
                       <td className="px-4 py-3 text-center text-gray-600">
                         {p.numero_cuotas_pagadas}/{p.numero_cuotas_estimado || "—"}
                       </td>

@@ -79,4 +79,21 @@ body {
   .no-print {
     display: none !important;
   }
+
+  /* Ensure tables print correctly on mobile too */
+  .responsive-table {
+    overflow: visible !important;
+  }
+}
+
+/* Responsive table wrapper — horizontal scroll on small screens */
+.responsive-table {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 640px) {
+  .responsive-table table {
+    min-width: 600px;
+  }
 }

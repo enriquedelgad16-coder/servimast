@@ -26,6 +26,8 @@ import {
   Phone,
   Scale,
   PieChart,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -324,6 +326,7 @@ export default function ReportesPage() {
   const [reportResult, setReportResult] = useState<ReportResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expandedQuincenas, setExpandedQuincenas] = useState<Set<string>>(new Set());
 
   // Load dropdown data when entering filter view
   useEffect(() => {
@@ -432,6 +435,18 @@ export default function ReportesPage() {
   // ---------- Render ----------
 
   if (view === "preview" && reportResult && selectedReport) {
+    // Special expandable view for resumen_nominas_periodo
+    const hasDetail = selectedReport.id === "resumen_nominas_periodo";
+
+    function toggleQuincena(qId: string) {
+      setExpandedQuincenas((prev) => {
+        const next = new Set(prev);
+        if (next.has(qId)) next.delete(qId);
+        else next.add(qId);
+        return next;
+      });
+    }
+
     return (
       <div>
         <button
@@ -449,6 +464,61 @@ export default function ReportesPage() {
           data={reportResult.data}
           totals={reportResult.totals}
           onClose={handleBack}
+          {...(hasDetail ? {
+            onRowClick: (row) => {
+              const qId = row.quincena_id as string;
+              if (qId) toggleQuincena(qId);
+            },
+            renderExpandedRow: (row) => {
+              const qId = row.quincena_id as string;
+              if (!qId || !expandedQuincenas.has(qId)) return null;
+              const details = (row._detailRows || []) as Record<string, unknown>[];
+              if (details.length === 0) return null;
+              return (
+                <tr key={`detail-${qId}`} className="bg-cyan-50/30">
+                  <td colSpan={reportResult.columns.length} className="px-4 py-3">
+                    <div className="text-xs mb-2 font-semibold text-gray-600 flex items-center gap-1">
+                      <ChevronUp className="h-3 w-3" />
+                      Detalle de empleados — {row.periodo as string}
+                    </div>
+                    <table className="w-full text-xs border border-gray-200 rounded-lg overflow-hidden">
+                      <thead>
+                        <tr className="bg-gray-100 border-b border-gray-200">
+                          <th className="text-left px-2 py-1.5 font-medium text-gray-500">Empleado</th>
+                          <th className="text-left px-2 py-1.5 font-medium text-gray-500">No.</th>
+                          <th className="text-left px-2 py-1.5 font-medium text-gray-500">Depto.</th>
+                          <th className="text-right px-2 py-1.5 font-medium text-gray-500">Devengado</th>
+                          <th className="text-right px-2 py-1.5 font-medium text-gray-500">AFP</th>
+                          <th className="text-right px-2 py-1.5 font-medium text-gray-500">SFS</th>
+                          <th className="text-right px-2 py-1.5 font-medium text-gray-500">ISR</th>
+                          <th className="text-right px-2 py-1.5 font-medium text-gray-500">Prést.</th>
+                          <th className="text-right px-2 py-1.5 font-medium text-gray-500">Deducciones</th>
+                          <th className="text-right px-2 py-1.5 font-medium text-gray-500 font-bold">Neto</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {details.map((d, i) => (
+                          <tr key={i} className="hover:bg-white/50">
+                            <td className="px-2 py-1 font-medium">{d.nombre as string}</td>
+                            <td className="px-2 py-1 text-gray-500">{d.numero_empleado as string}</td>
+                            <td className="px-2 py-1 text-gray-500">{d.departamento as string}</td>
+                            <td className="px-2 py-1 text-right font-mono">{formatCurrency(Number(d.devengado))}</td>
+                            <td className="px-2 py-1 text-right font-mono text-gray-500">{formatCurrency(Number(d.afp))}</td>
+                            <td className="px-2 py-1 text-right font-mono text-gray-500">{formatCurrency(Number(d.sfs))}</td>
+                            <td className="px-2 py-1 text-right font-mono text-gray-500">{formatCurrency(Number(d.isr))}</td>
+                            <td className="px-2 py-1 text-right font-mono text-gray-500">{formatCurrency(Number(d.prestamos))}</td>
+                            <td className="px-2 py-1 text-right font-mono">{formatCurrency(Number(d.deducciones))}</td>
+                            <td className="px-2 py-1 text-right font-mono font-bold text-success-600">{formatCurrency(Number(d.neto))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              );
+            },
+            rowClickHint: "Haga clic en una quincena para ver el detalle de empleados",
+          } : {})}
         />
       </div>
     );
@@ -957,17 +1027,16 @@ async function buildReport(
           numero_empleado: emp?.numero_empleado || "",
           nombre: emp ? `${emp.nombre} ${emp.apellido}` : "",
           departamento: emp?.departamento || "",
-          horas_base: ni.horas_base,
-          horas_extras_diurnas: ni.horas_extras_diurnas || 0,
-          horas_extras_nocturnas: ni.horas_extras_nocturnas || 0,
-          horas_extras_feriados: ni.horas_extras_feriados || 0,
           subtotal_devengado: ni.subtotal_devengado,
-          aporte_afp_empleado: ni.aporte_afp_empleado,
-          aporte_sfs_empleado: ni.aporte_sfs_empleado,
-          isr: ni.isr,
-          deduccion_prestamo: ni.deduccion_prestamo || 0,
+          afp_monto: ni.afp_monto,
+          sfs_monto: ni.sfs_monto,
+          isr_monto: ni.isr_monto,
+          deduccion_prestamos: ni.deduccion_prestamos || 0,
           total_deducciones: ni.total_deducciones,
           total_neto: ni.total_neto,
+          afp_patronal: ni.afp_patronal_monto,
+          sfs_patronal: ni.sfs_patronal_monto,
+          srl_patronal: ni.srl_patronal_monto,
         };
       });
 
@@ -983,28 +1052,30 @@ async function buildReport(
           { key: "numero_empleado", label: "No. Emp" },
           { key: "nombre", label: "Nombre" },
           { key: "departamento", label: "Depto." },
-          { key: "horas_base", label: "Hrs Base", align: "right" },
-          { key: "horas_extras_diurnas", label: "HE Diur.", align: "right" },
-          { key: "horas_extras_nocturnas", label: "HE Noct.", align: "right" },
-          { key: "horas_extras_feriados", label: "HE Fer.", align: "right" },
           { key: "subtotal_devengado", label: "Devengado", align: "right" },
-          { key: "aporte_afp_empleado", label: "AFP", align: "right" },
-          { key: "aporte_sfs_empleado", label: "SFS", align: "right" },
-          { key: "isr", label: "ISR", align: "right" },
-          { key: "deduccion_prestamo", label: "Préstamo", align: "right" },
+          { key: "afp_monto", label: "AFP Emp.", align: "right" },
+          { key: "sfs_monto", label: "SFS Emp.", align: "right" },
+          { key: "isr_monto", label: "ISR", align: "right" },
+          { key: "deduccion_prestamos", label: "Préstamos", align: "right" },
           { key: "total_deducciones", label: "Deducciones", align: "right" },
           { key: "total_neto", label: "Neto", align: "right" },
+          { key: "afp_patronal", label: "AFP Pat.", align: "right" },
+          { key: "sfs_patronal", label: "SFS Pat.", align: "right" },
+          { key: "srl_patronal", label: "SRL Pat.", align: "right" },
         ],
         data: rows,
         totals: {
           nombre: `TOTAL (${rows.length})`,
           subtotal_devengado: sumField("subtotal_devengado"),
-          aporte_afp_empleado: sumField("aporte_afp_empleado"),
-          aporte_sfs_empleado: sumField("aporte_sfs_empleado"),
-          isr: sumField("isr"),
-          deduccion_prestamo: sumField("deduccion_prestamo"),
+          afp_monto: sumField("afp_monto"),
+          sfs_monto: sumField("sfs_monto"),
+          isr_monto: sumField("isr_monto"),
+          deduccion_prestamos: sumField("deduccion_prestamos"),
           total_deducciones: sumField("total_deducciones"),
           total_neto: sumField("total_neto"),
+          afp_patronal: sumField("afp_patronal"),
+          sfs_patronal: sumField("sfs_patronal"),
+          srl_patronal: sumField("srl_patronal"),
         },
         periodo: q
           ? `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}`
@@ -1031,15 +1102,36 @@ async function buildReport(
       for (const q of qs) {
         const { data: items } = await supabase
           .from("nomina_items")
-          .select("subtotal_devengado, total_deducciones, total_neto")
+          .select("*, empleado:empleados(nombre, apellido, numero_empleado, departamento)")
           .eq("quincena_id", q.id);
 
         const totalDev = (items || []).reduce((s, i) => s + (i.subtotal_devengado || 0), 0);
         const totalDed = (items || []).reduce((s, i) => s + (i.total_deducciones || 0), 0);
         const totalNet = (items || []).reduce((s, i) => s + (i.total_neto || 0), 0);
+        const totalAFPPat = (items || []).reduce((s, i) => s + (i.afp_patronal_monto || 0), 0);
+        const totalSFSPat = (items || []).reduce((s, i) => s + (i.sfs_patronal_monto || 0), 0);
+        const totalSRLPat = (items || []).reduce((s, i) => s + (i.srl_patronal_monto || 0), 0);
         const count = (items || []).length;
 
+        // Build detail rows for each employee in this quincena
+        const detailRows = (items || []).map((ni) => {
+          const emp = unwrap<{ nombre: string; apellido: string; numero_empleado: string; departamento: string | null }>(ni.empleado);
+          return {
+            nombre: emp ? `${emp.apellido}, ${emp.nombre}` : "—",
+            numero_empleado: emp?.numero_empleado || "",
+            departamento: emp?.departamento || "",
+            devengado: ni.subtotal_devengado,
+            afp: ni.afp_monto,
+            sfs: ni.sfs_monto,
+            isr: ni.isr_monto,
+            prestamos: ni.deduccion_prestamos || 0,
+            deducciones: ni.total_deducciones,
+            neto: ni.total_neto,
+          };
+        });
+
         results.push({
+          quincena_id: q.id,
           periodo: `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}`,
           descripcion: q.descripcion || "",
           estado: q.estado,
@@ -1047,12 +1139,15 @@ async function buildReport(
           total_devengado: totalDev,
           total_deducciones: totalDed,
           total_neto: totalNet,
+          costo_patronal: totalAFPPat + totalSFSPat + totalSRLPat,
+          _detailRows: detailRows,
         });
       }
 
       const grandDev = results.reduce((s, r) => s + (Number(r.total_devengado) || 0), 0);
       const grandDed = results.reduce((s, r) => s + (Number(r.total_deducciones) || 0), 0);
       const grandNet = results.reduce((s, r) => s + (Number(r.total_neto) || 0), 0);
+      const grandPat = results.reduce((s, r) => s + (Number(r.costo_patronal) || 0), 0);
 
       return {
         columns: [
@@ -1063,6 +1158,7 @@ async function buildReport(
           { key: "total_devengado", label: "Devengado", align: "right" },
           { key: "total_deducciones", label: "Deducciones", align: "right" },
           { key: "total_neto", label: "Neto", align: "right" },
+          { key: "costo_patronal", label: "Costo Patronal", align: "right" },
         ],
         data: results,
         totals: {
@@ -1070,6 +1166,7 @@ async function buildReport(
           total_devengado: grandDev,
           total_deducciones: grandDed,
           total_neto: grandNet,
+          costo_patronal: grandPat,
         },
         periodo: filters.fechaDesde && filters.fechaHasta
           ? `${formatDate(filters.fechaDesde)} - ${formatDate(filters.fechaHasta)}`

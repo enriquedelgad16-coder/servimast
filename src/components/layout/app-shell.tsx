@@ -12,6 +12,11 @@ interface AppShellProps {
   userRole: RolUsuario;
 }
 
+function useIsMobile() {
+  if (typeof window === "undefined") return false;
+  return window.innerWidth < 1024;
+}
+
 export function AppShell({ children, userName, userRole }: AppShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -41,8 +46,11 @@ export function AppShell({ children, userName, userRole }: AppShellProps) {
       >
         <Sidebar
           userRole={userRole}
-          collapsed={sidebarCollapsed}
+          collapsed={mobileMenuOpen ? false : sidebarCollapsed}
           onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+          onNavigate={() => {
+            if (useIsMobile()) setMobileMenuOpen(false);
+          }}
         />
       </div>
 
@@ -53,7 +61,7 @@ export function AppShell({ children, userName, userRole }: AppShellProps) {
           sidebarCollapsed ? "lg:pl-16" : "lg:pl-60"
         )}
       >
-        <div className="p-6">{children}</div>
+        <div className="p-3 sm:p-6">{children}</div>
       </main>
     </div>
   );
