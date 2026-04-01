@@ -15,6 +15,7 @@ import {
   HelpCircle,
   ScrollText,
   Scale,
+  Building2,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -40,6 +41,12 @@ const NAV_ITEMS: NavItem[] = [
     href: "/empleados",
     icon: Users,
     roles: ["admin", "operador"],
+  },
+  {
+    label: "Departamentos",
+    href: "/departamentos",
+    icon: Building2,
+    roles: ["admin"],
   },
   {
     label: "Nómina",

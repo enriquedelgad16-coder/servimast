@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -18,7 +18,21 @@ export function EmpleadoForm({ empleado }: EmpleadoFormProps) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [departamentos, setDepartamentos] = useState<string[]>([]);
   const isEdit = !!empleado;
+
+  useEffect(() => {
+    async function loadDepartamentos() {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("departamentos")
+        .select("nombre")
+        .eq("activo", true)
+        .order("nombre");
+      setDepartamentos((data || []).map((d) => d.nombre));
+    }
+    loadDepartamentos();
+  }, []);
 
   const {
     register,
@@ -298,10 +312,15 @@ export function EmpleadoForm({ empleado }: EmpleadoFormProps) {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Departamento
                     </label>
-                    <input
+                    <select
                       {...register("departamento")}
                       className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    />
+                    >
+                      <option value="">Seleccionar departamento...</option>
+                      {departamentos.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 

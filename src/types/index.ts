@@ -230,6 +230,15 @@ export interface ConfiguracionSistema {
   updated_at: string;
 }
 
+export interface Departamento {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // ===== CÁLCULOS =====
 export interface NominaCalcInput {
   horas_base: number;
