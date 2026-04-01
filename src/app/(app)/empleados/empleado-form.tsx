@@ -48,7 +48,23 @@ export function EmpleadoForm({ empleado }: EmpleadoFormProps) {
           nss: empleado.nss || "",
         }
       : {
+          cedula: "",
+          nombre: "",
+          apellido: "",
+          fecha_nacimiento: "",
+          direccion: "",
+          email: "",
+          telefono_trabajo: "",
+          telefono_personal: "",
+          fecha_ingreso: "",
+          cargo: "",
+          departamento: "",
           tipo_contrato: "indeterminado",
+          periodo_prueba_fin: "",
+          sueldo_quincenal: 0,
+          banco: "",
+          numero_cuenta: "",
+          nss: "",
         },
   });
 

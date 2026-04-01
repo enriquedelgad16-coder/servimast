@@ -12,7 +12,13 @@ export const empleadoSchema = z.object({
   apellido: z.string().min(2, "El apellido es requerido"),
   fecha_nacimiento: z.string().optional().nullable(),
   direccion: z.string().optional().nullable(),
-  email: z.string().email("Correo electrónico inválido").optional().nullable(),
+  email: z
+    .string()
+    .refine((val) => val === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val), {
+      message: "Correo electrónico inválido",
+    })
+    .optional()
+    .nullable(),
   telefono_trabajo: z.string().optional().nullable(),
   telefono_personal: z.string().optional().nullable(),
   fecha_ingreso: z.string().min(1, "La fecha de ingreso es requerida"),
