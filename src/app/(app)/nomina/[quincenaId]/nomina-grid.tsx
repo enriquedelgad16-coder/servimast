@@ -429,7 +429,7 @@ export function NominaGrid({
   }
 
   function handleExportPDF() {
-    const columns = ["Empleado", "No.", "Salario Base", "H.E. Diur.", "H.E. Noct.", "H.E. Fer.", "Devengado", "AFP", "SFS", "ISR", "Préstamos", "Deducciones", "NETO", "AFP Pat.", "SFS Pat.", "SRL Pat."];
+    const columns = ["Empleado", "No.", "Salario Base", "H.E. Diur.", "H.E. Noct.", "H.E. Fer.", "Inst. GPON", "Inst. Red", "Otros Ing.", "Devengado", "AFP", "SFS", "ISR", "Préstamos", "Deducciones", "NETO", "AFP Pat.", "SFS Pat.", "SRL Pat."];
     const data = nominaItems.map((item) => [
       item.empleado ? `${item.empleado.apellido}, ${item.empleado.nombre}` : "—",
       item.empleado?.numero_empleado || "",
@@ -437,6 +437,9 @@ export function NominaGrid({
       formatCurrency(item.monto_extras_diurnas),
       formatCurrency(item.monto_extras_nocturnas),
       formatCurrency(item.monto_extras_feriados),
+      formatCurrency(item.monto_instalaciones_gpon),
+      formatCurrency(item.monto_instalaciones_red),
+      formatCurrency(item.otros_ingresos),
       formatCurrency(item.subtotal_devengado),
       formatCurrency(item.afp_monto),
       formatCurrency(item.sfs_monto),
@@ -451,6 +454,7 @@ export function NominaGrid({
     const totals = [
       "TOTALES", `${nominaItems.length} emp.`,
       formatCurrency(totalSalarioBase), formatCurrency(totalExtDiur), formatCurrency(totalExtNoct), formatCurrency(totalExtFer),
+      formatCurrency(totalInstGpon), formatCurrency(totalInstRed), formatCurrency(totalOtrosIng),
       formatCurrency(totalDevengado), formatCurrency(totalAFP), formatCurrency(totalSFS), formatCurrency(totalISR),
       formatCurrency(totalPrestamos), formatCurrency(totalDeducciones), formatCurrency(totalNeto),
       formatCurrency(totalAFPPat), formatCurrency(totalSFSPat), formatCurrency(totalSRLPat),
@@ -472,6 +476,10 @@ export function NominaGrid({
       "H.E. Diurnas": formatCurrency(item.monto_extras_diurnas),
       "H.E. Nocturnas": formatCurrency(item.monto_extras_nocturnas),
       "H.E. Feriados": formatCurrency(item.monto_extras_feriados),
+      "Inst. GPON": formatCurrency(item.monto_instalaciones_gpon),
+      "Inst. Red": formatCurrency(item.monto_instalaciones_red),
+      "Otros Ingresos": formatCurrency(item.otros_ingresos),
+      "Concepto Otros Ing.": item.descripcion_otros_ingresos || "",
       "Devengado": formatCurrency(item.subtotal_devengado),
       "AFP (2.87%)": formatCurrency(item.afp_monto),
       "SFS (3.04%)": formatCurrency(item.sfs_monto),
@@ -493,6 +501,9 @@ export function NominaGrid({
   const totalExtDiur = nominaItems.reduce((s, i) => s + Number(i.monto_extras_diurnas), 0);
   const totalExtNoct = nominaItems.reduce((s, i) => s + Number(i.monto_extras_nocturnas), 0);
   const totalExtFer = nominaItems.reduce((s, i) => s + Number(i.monto_extras_feriados), 0);
+  const totalInstGpon = nominaItems.reduce((s, i) => s + Number(i.monto_instalaciones_gpon), 0);
+  const totalInstRed = nominaItems.reduce((s, i) => s + Number(i.monto_instalaciones_red), 0);
+  const totalOtrosIng = nominaItems.reduce((s, i) => s + Number(i.otros_ingresos), 0);
   const totalDevengado = nominaItems.reduce((s, i) => s + Number(i.subtotal_devengado), 0);
   const totalAFP = nominaItems.reduce((s, i) => s + Number(i.afp_monto), 0);
   const totalSFS = nominaItems.reduce((s, i) => s + Number(i.sfs_monto), 0);
@@ -635,6 +646,9 @@ export function NominaGrid({
                 <th className="text-right px-3 py-3 font-medium text-gray-500 print:text-white">H.E. Diur.</th>
                 <th className="text-right px-3 py-3 font-medium text-gray-500 print:text-white">H.E. Noct.</th>
                 <th className="text-right px-3 py-3 font-medium text-gray-500 print:text-white">H.E. Fer.</th>
+                <th className="text-right px-3 py-3 font-medium text-gray-500 print:text-white">Inst. GPON</th>
+                <th className="text-right px-3 py-3 font-medium text-gray-500 print:text-white">Inst. Red</th>
+                <th className="text-right px-3 py-3 font-medium text-gray-500 print:text-white">Otros Ing.</th>
                 <th className="text-right px-3 py-3 font-medium text-gray-500 print:text-white">Devengado</th>
                 <th className="text-right px-3 py-3 font-medium text-gray-500 print:text-white">AFP</th>
                 <th className="text-right px-3 py-3 font-medium text-gray-500 print:text-white">SFS</th>
@@ -648,7 +662,7 @@ export function NominaGrid({
             <tbody className="divide-y divide-gray-100">
               {nominaItems.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="text-center py-12 text-gray-400">
+                  <td colSpan={16} className="text-center py-12 text-gray-400">
                     No hay empleados en esta quincena. Use el botón &quot;Agregar Empleados&quot; para comenzar.
                   </td>
                 </tr>
@@ -668,6 +682,9 @@ export function NominaGrid({
                       <td className="px-3 py-2.5 text-right font-mono text-gray-700">{formatCurrency(item.monto_extras_diurnas)}</td>
                       <td className="px-3 py-2.5 text-right font-mono text-gray-700">{formatCurrency(item.monto_extras_nocturnas)}</td>
                       <td className="px-3 py-2.5 text-right font-mono text-gray-700">{formatCurrency(item.monto_extras_feriados)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-gray-700">{formatCurrency(item.monto_instalaciones_gpon)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-gray-700">{formatCurrency(item.monto_instalaciones_red)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-amber-600">{formatCurrency(item.otros_ingresos)}</td>
                       <td className="px-3 py-2.5 text-right font-mono font-semibold text-gray-900">{formatCurrency(item.subtotal_devengado)}</td>
                       <td className="px-3 py-2.5 text-right font-mono text-danger-600">{formatCurrency(item.afp_monto)}</td>
                       <td className="px-3 py-2.5 text-right font-mono text-danger-600">{formatCurrency(item.sfs_monto)}</td>
@@ -694,7 +711,7 @@ export function NominaGrid({
                     </tr>
                     {expandedRow === item.id && editingItem === item.id && isBorrador && (
                       <tr key={`${item.id}-edit`} className="bg-amber-50/40">
-                        <td colSpan={13} className="px-6 py-4 print:hidden">
+                        <td colSpan={16} className="px-6 py-4 print:hidden">
                           <div className="space-y-4">
                             <p className="text-sm font-semibold text-gray-700">Editar Variables — {item.empleado ? `${item.empleado.nombre} ${item.empleado.apellido}` : ""}</p>
 
@@ -751,7 +768,7 @@ export function NominaGrid({
                     )}
                     {expandedRow === item.id && editingItem !== item.id && (
                       <tr key={`${item.id}-detail`} className="bg-cyan-50/30">
-                        <td colSpan={13} className="px-6 py-4 print:hidden">
+                        <td colSpan={16} className="px-6 py-4 print:hidden">
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
                             <div>
                               <p className="font-semibold text-gray-700 mb-2">Ingresos</p>
@@ -819,6 +836,9 @@ export function NominaGrid({
                   <td className="px-3 py-3 text-right font-mono">{formatCurrency(totalExtDiur)}</td>
                   <td className="px-3 py-3 text-right font-mono">{formatCurrency(totalExtNoct)}</td>
                   <td className="px-3 py-3 text-right font-mono">{formatCurrency(totalExtFer)}</td>
+                  <td className="px-3 py-3 text-right font-mono">{formatCurrency(totalInstGpon)}</td>
+                  <td className="px-3 py-3 text-right font-mono">{formatCurrency(totalInstRed)}</td>
+                  <td className="px-3 py-3 text-right font-mono">{formatCurrency(totalOtrosIng)}</td>
                   <td className="px-3 py-3 text-right font-mono">{formatCurrency(totalDevengado)}</td>
                   <td className="px-3 py-3 text-right font-mono">{formatCurrency(totalAFP)}</td>
                   <td className="px-3 py-3 text-right font-mono">{formatCurrency(totalSFS)}</td>
