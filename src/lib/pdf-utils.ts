@@ -443,6 +443,231 @@ export async function generateSectionedNominaPDF({
   doc.save(fileName || `Nomina_Secciones_${today}.pdf`);
 }
 
+// ---------------------------------------------------------------------------
+// Compact Bulk Payslips — 2 per page
+// ---------------------------------------------------------------------------
+
+export interface CompactPayslipItem {
+  empleadoNombre: string;
+  empleadoCedula: string;
+  empleadoCargo: string;
+  empleadoDepartamento: string;
+  empleadoNumero: string;
+  empleadoBanco?: string;
+  empleadoCuenta?: string;
+  salarioBase: number;
+  montoExtrasDiurnas: number;
+  montoExtrasNocturnas: number;
+  montoExtrasFeriados: number;
+  montoInstalacionesGpon: number;
+  montoInstalacionesRed: number;
+  metasCumplimiento: number;
+  otrosIngresos: number;
+  descripcionOtrosIngresos?: string;
+  subtotalDevengado: number;
+  deduccionFaltas: number;
+  afpMonto: number;
+  sfsMonto: number;
+  isrMonto: number;
+  deduccionPrestamos: number;
+  otrosDescuentos: number;
+  totalDeducciones: number;
+  totalNeto: number;
+}
+
+interface CompactBulkOptions {
+  periodo: string;
+  periodoDescripcion?: string;
+  items: CompactPayslipItem[];
+  fileName?: string;
+}
+
+export async function generateCompactBulkPayslipsPDF({
+  periodo,
+  periodoDescripcion,
+  items,
+  fileName,
+}: CompactBulkOptions) {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" });
+  const pw = doc.internal.pageSize.getWidth();
+  const ph = doc.internal.pageSize.getHeight();
+  const halfH = ph / 2;
+  const fc = (n: number) => `RD$ ${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  let logoImg: HTMLImageElement | null = null;
+  try {
+    logoImg = await loadImage("/logo-servimast.jpg");
+  } catch { /* continue */ }
+
+  function drawPayslip(item: CompactPayslipItem, offsetY: number) {
+    const mx = 12; // left margin
+    const mr = pw - 12; // right edge
+
+    // ── Dashed separator at the top (except first slip on page) ──
+    if (offsetY > 10) {
+      doc.setDrawColor(180);
+      doc.setLineWidth(0.2);
+      // dashed line
+      const dashLen = 3;
+      for (let x = mx; x < mr; x += dashLen * 2) {
+        doc.line(x, offsetY - 2, Math.min(x + dashLen, mr), offsetY - 2);
+      }
+    }
+
+    let y = offsetY;
+
+    // ── Company header (compact) ──
+    if (logoImg) doc.addImage(logoImg, "JPEG", mx, y, 10, 10);
+    const lx = logoImg ? mx + 12 : mx;
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0);
+    doc.text("SERVIMAST JPM", lx, y + 4);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100);
+    doc.text("Sistema de Seguridad y Redes", lx, y + 8);
+
+    // Period + title on right
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0);
+    doc.text("RECIBO DE PAGO", mr, y + 4, { align: "right" });
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(80);
+    doc.text(`Período: ${periodo}`, mr, y + 8, { align: "right" });
+    if (periodoDescripcion) {
+      doc.text(periodoDescripcion, mr, y + 11.5, { align: "right" });
+    }
+
+    y += 13;
+    doc.setDrawColor(0, 150, 200);
+    doc.setLineWidth(0.5);
+    doc.line(mx, y, mr, y);
+    y += 3;
+
+    // ── Employee info (2 lines) ──
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0);
+    doc.text(`${item.empleadoNombre}`, mx, y);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(60);
+    doc.text(`No. ${item.empleadoNumero}  |  Cédula: ${item.empleadoCedula}  |  ${item.empleadoCargo}  |  ${item.empleadoDepartamento}`, mx, y + 4);
+    if (item.empleadoBanco) {
+      doc.text(`Banco: ${item.empleadoBanco}${item.empleadoCuenta ? ` | Cta: ${item.empleadoCuenta}` : ""}`, mr, y + 4, { align: "right" });
+    }
+    y += 8;
+
+    // ── Two-column layout: Ingresos | Deducciones ──
+    const colW = (mr - mx - 4) / 2;
+    const col1X = mx;
+    const col2X = mx + colW + 4;
+
+    // -- INGRESOS (left) --
+    const ingRows: string[][] = [];
+    ingRows.push(["Salario Base", fc(item.salarioBase)]);
+    const totalExtras = item.montoExtrasDiurnas + item.montoExtrasNocturnas + item.montoExtrasFeriados;
+    if (totalExtras > 0) ingRows.push(["Horas Extras", fc(totalExtras)]);
+    const totalInst = item.montoInstalacionesGpon + item.montoInstalacionesRed;
+    if (totalInst > 0) ingRows.push(["Instalaciones", fc(totalInst)]);
+    if (item.metasCumplimiento > 0) ingRows.push(["Metas", fc(item.metasCumplimiento)]);
+    if (item.otrosIngresos > 0) ingRows.push([item.descripcionOtrosIngresos ? `Otros (${item.descripcionOtrosIngresos})` : "Otros Ingresos", fc(item.otrosIngresos)]);
+
+    autoTable(doc, {
+      startY: y,
+      head: [["INGRESOS", "Monto"]],
+      body: ingRows,
+      foot: [["DEVENGADO", fc(item.subtotalDevengado)]],
+      theme: "grid",
+      headStyles: { fillColor: [15, 30, 50], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 6.5, halign: "center" },
+      bodyStyles: { fontSize: 6.5, cellPadding: 1.2 },
+      footStyles: { fillColor: [230, 247, 255], textColor: [0, 0, 0], fontStyle: "bold", fontSize: 6.5 },
+      columnStyles: { 1: { halign: "right" } },
+      styles: { lineWidth: 0.1, lineColor: [200, 200, 200] },
+      tableWidth: colW,
+      margin: { left: col1X, right: pw - col1X - colW },
+    });
+
+    // -- DEDUCCIONES (right) --
+    const dedRows: string[][] = [];
+    if (item.deduccionFaltas > 0) dedRows.push(["Faltas", fc(item.deduccionFaltas)]);
+    dedRows.push(["AFP (2.87%)", fc(item.afpMonto)]);
+    dedRows.push(["SFS (3.04%)", fc(item.sfsMonto)]);
+    if (item.isrMonto > 0) dedRows.push(["ISR", fc(item.isrMonto)]);
+    if (item.deduccionPrestamos > 0) dedRows.push(["Préstamos", fc(item.deduccionPrestamos)]);
+    if (item.otrosDescuentos > 0) dedRows.push(["Otros Desc.", fc(item.otrosDescuentos)]);
+
+    autoTable(doc, {
+      startY: y,
+      head: [["DEDUCCIONES", "Monto"]],
+      body: dedRows,
+      foot: [["TOTAL DED.", fc(item.totalDeducciones)]],
+      theme: "grid",
+      headStyles: { fillColor: [120, 30, 30], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 6.5, halign: "center" },
+      bodyStyles: { fontSize: 6.5, cellPadding: 1.2 },
+      footStyles: { fillColor: [255, 230, 230], textColor: [0, 0, 0], fontStyle: "bold", fontSize: 6.5 },
+      columnStyles: { 1: { halign: "right" } },
+      styles: { lineWidth: 0.1, lineColor: [200, 200, 200] },
+      tableWidth: colW,
+      margin: { left: col2X, right: pw - col2X - colW },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tableEndY = (doc as any).lastAutoTable?.finalY || (y + 30);
+    y = tableEndY + 3;
+
+    // ── NET PAY box ──
+    doc.setFillColor(15, 30, 50);
+    doc.roundedRect(mx, y, mr - mx, 10, 1.5, 1.5, "F");
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("TOTAL NETO A RECIBIR:", mx + 6, y + 6.5);
+    doc.setFontSize(11);
+    doc.text(fc(item.totalNeto), mr - 6, y + 6.5, { align: "right" });
+    y += 14;
+
+    // ── Signature lines (compact) ──
+    const sigW = (mr - mx - 30) / 2;
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.2);
+    doc.line(mx, y + 8, mx + sigW, y + 8);
+    doc.line(mr - sigW, y + 8, mr, y + 8);
+    doc.setFontSize(6.5);
+    doc.setTextColor(80);
+    doc.text("Firma del Empleado", mx + sigW / 2, y + 11, { align: "center" });
+    doc.text("Firma Autorizada", mr - sigW / 2, y + 11, { align: "center" });
+    doc.setFontSize(6);
+    doc.setTextColor(120);
+    doc.text(item.empleadoNombre, mx + sigW / 2, y + 14, { align: "center" });
+    doc.text("SERVIMAST JPM", mr - sigW / 2, y + 14, { align: "center" });
+  }
+
+  // ── Render 2 payslips per page ──
+  for (let i = 0; i < items.length; i++) {
+    const isSecondOnPage = i % 2 === 1;
+    if (i > 0 && !isSecondOnPage) doc.addPage();
+    const offsetY = isSecondOnPage ? halfH + 3 : 8;
+    drawPayslip(items[i], offsetY);
+  }
+
+  // ── Page numbers ──
+  const pageCount = doc.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(6);
+    doc.setTextColor(150);
+    doc.text(
+      `SERVIMAST JPM - Recibos de Pago | Página ${i} de ${pageCount} | ${new Date().toLocaleString("es-DO")}`,
+      pw / 2, ph - 4, { align: "center" }
+    );
+  }
+
+  doc.save(fileName || `Recibos_Compactos_${new Date().toISOString().split("T")[0]}.pdf`);
+}
+
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();

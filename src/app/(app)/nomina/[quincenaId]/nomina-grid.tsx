@@ -6,7 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { calcularNomina } from "@/lib/calculations/nomina";
 import { formatCurrency } from "@/lib/utils";
-import { generatePDFReport, generateSectionedNominaPDF } from "@/lib/pdf-utils";
+import { generatePDFReport, generateSectionedNominaPDF, generateCompactBulkPayslipsPDF } from "@/lib/pdf-utils";
 import {
   ArrowLeft,
   UserPlus,
@@ -25,7 +25,6 @@ import {
   Gift,
 } from "lucide-react";
 import * as XLSX from "xlsx";
-import jsPDF from "jspdf";
 import { generatePayslipPDF } from "@/lib/pdf-utils";
 import { formatCedula } from "@/lib/utils";
 import type { Quincena, NominaItem, Empleado } from "@/types";
@@ -364,67 +363,44 @@ export function NominaGrid({
   async function handleBulkPayslips() {
     setLoading(true);
     try {
-      const supabase = createClient();
-      let doc: jsPDF | undefined;
-      for (const item of nominaItems) {
-        const emp = item.empleado;
-        if (!emp) continue;
-        const { data: prestamos } = await supabase
-          .from("prestamos").select("saldo_pendiente")
-          .eq("empleado_id", item.empleado_id).eq("estado", "activo");
-        const totalSaldo = (prestamos || []).reduce((s, p) => s + (p.saldo_pendiente || 0), 0);
-        const balanceDespues = totalSaldo - item.deduccion_prestamos;
-        doc = await generatePayslipPDF({
-          empleadoNombre: `${emp.nombre} ${emp.apellido}`,
-          empleadoCedula: formatCedula(emp.cedula),
-          empleadoCargo: emp.cargo || "—",
-          empleadoDepartamento: emp.departamento || "—",
-          empleadoNumero: emp.numero_empleado,
-          empleadoBanco: emp.banco || undefined,
-          empleadoCuenta: emp.numero_cuenta || undefined,
-          periodoInicio: quincena.periodo_inicio,
-          periodoFin: quincena.periodo_fin,
-          periodoDescripcion: quincena.descripcion || undefined,
-          salarioBase: item.salario_base_calc,
-          horasBase: item.horas_base,
-          tarifaHora: item.tarifa_hora,
-          horasExtrasDiurnas: item.horas_extras_diurnas,
-          montoExtrasDiurnas: item.monto_extras_diurnas,
-          horasExtrasNocturnas: item.horas_extras_nocturnas,
-          montoExtrasNocturnas: item.monto_extras_nocturnas,
-          horasExtrasFeriados: item.horas_extras_feriados,
-          montoExtrasFeriados: item.monto_extras_feriados,
-          instalacionesGpon: item.instalaciones_gpon,
-          montoInstalacionesGpon: item.monto_instalaciones_gpon,
-          instalacionesRed: item.instalaciones_red,
-          montoInstalacionesRed: item.monto_instalaciones_red,
-          metasCumplimiento: item.metas_cumplimiento,
-          otrosIngresos: item.otros_ingresos,
-          descripcionOtrosIngresos: item.descripcion_otros_ingresos || undefined,
-          subtotalDevengado: item.subtotal_devengado,
-          faltasDias: item.faltas_dias,
-          deduccionFaltas: item.deduccion_por_faltas,
-          afpPorcentaje: item.afp_porcentaje,
-          afpMonto: item.afp_monto,
-          sfsPorcentaje: item.sfs_porcentaje,
-          sfsMonto: item.sfs_monto,
-          isrMonto: item.isr_monto,
-          deduccionPrestamos: item.deduccion_prestamos,
-          otrosDescuentos: item.otros_descuentos,
-          descripcionOtrosDescuentos: item.descripcion_otros_descuentos || undefined,
-          totalDeducciones: item.total_deducciones,
-          totalNeto: item.total_neto,
-          afpPatronal: item.afp_patronal_monto,
-          sfsPatronal: item.sfs_patronal_monto,
-          srlPatronal: item.srl_patronal_monto,
-          balancePrestamo: balanceDespues > 0 ? balanceDespues : undefined,
-          numeroComprobante: item.numero_comprobante || undefined,
-          tipo: "quincenal",
-        }, doc);
-      }
-      if (doc) {
-        doc.save(`Recibos_Nomina_${quincena.periodo_inicio}_${quincena.periodo_fin}.pdf`);
-      }
+      const compactItems = nominaItems
+        .filter((item) => item.empleado)
+        .map((item) => {
+          const emp = item.empleado!;
+          return {
+            empleadoNombre: `${emp.nombre} ${emp.apellido}`,
+            empleadoCedula: formatCedula(emp.cedula),
+            empleadoCargo: emp.cargo || "—",
+            empleadoDepartamento: emp.departamento || "—",
+            empleadoNumero: emp.numero_empleado,
+            empleadoBanco: emp.banco || undefined,
+            empleadoCuenta: emp.numero_cuenta || undefined,
+            salarioBase: Number(item.salario_base_calc),
+            montoExtrasDiurnas: Number(item.monto_extras_diurnas),
+            montoExtrasNocturnas: Number(item.monto_extras_nocturnas),
+            montoExtrasFeriados: Number(item.monto_extras_feriados),
+            montoInstalacionesGpon: Number(item.monto_instalaciones_gpon),
+            montoInstalacionesRed: Number(item.monto_instalaciones_red),
+            metasCumplimiento: Number(item.metas_cumplimiento),
+            otrosIngresos: Number(item.otros_ingresos),
+            descripcionOtrosIngresos: item.descripcion_otros_ingresos || undefined,
+            subtotalDevengado: Number(item.subtotal_devengado),
+            deduccionFaltas: Number(item.deduccion_por_faltas),
+            afpMonto: Number(item.afp_monto),
+            sfsMonto: Number(item.sfs_monto),
+            isrMonto: Number(item.isr_monto),
+            deduccionPrestamos: Number(item.deduccion_prestamos),
+            otrosDescuentos: Number(item.otros_descuentos),
+            totalDeducciones: Number(item.total_deducciones),
+            totalNeto: Number(item.total_neto),
+          };
+        });
+      await generateCompactBulkPayslipsPDF({
+        periodo: `${quincena.periodo_inicio} — ${quincena.periodo_fin}`,
+        periodoDescripcion: quincena.descripcion || undefined,
+        items: compactItems,
+        fileName: `Recibos_Nomina_${quincena.periodo_inicio}_${quincena.periodo_fin}.pdf`,
+      });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Error generando recibos");
     } finally {
