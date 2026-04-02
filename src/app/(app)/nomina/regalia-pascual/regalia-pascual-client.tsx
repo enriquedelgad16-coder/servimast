@@ -16,6 +16,7 @@ import {
   Receipt,
   Download,
   AlertTriangle,
+  TrendingUp,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -170,8 +171,93 @@ export function RegaliaPascualClient({ empleados, quincenas }: Props) {
     }
   }
 
+  const [showProjection, setShowProjection] = useState(false);
+  const [projectionItems, setProjectionItems] = useState<RegaliaItem[]>([]);
+  const [projectionCalculated, setProjectionCalculated] = useState(false);
+  const [projectionLoading, setProjectionLoading] = useState(false);
+
   const totalRegalia = items.reduce((s, i) => s + i.montoRegalia, 0);
   const totalDevengado = items.reduce((s, i) => s + i.totalDevengadoAnual, 0);
+
+  const totalProjection = projectionItems.reduce((s, i) => s + i.montoRegalia, 0);
+  const totalProjectedDevengado = projectionItems.reduce((s, i) => s + i.totalDevengadoAnual, 0);
+
+  async function calcularProyeccion() {
+    setProjectionLoading(true);
+    setError(null);
+    try {
+      const supabase = createClient();
+
+      // Get the last 2 quincenas (last month) to determine monthly salary per employee
+      const { data: lastQuincenas } = await supabase
+        .from("quincenas")
+        .select("id, periodo_inicio, periodo_fin")
+        .lte("periodo_fin", `${selectedYear}-12-31`)
+        .order("periodo_fin", { ascending: false })
+        .limit(2);
+
+      if (!lastQuincenas || lastQuincenas.length === 0) {
+        setError("No hay quincenas recientes para proyectar");
+        setProjectionLoading(false);
+        return;
+      }
+
+      const lastQIds = lastQuincenas.map((q) => q.id);
+
+      const { data: lastNomina } = await supabase
+        .from("nomina_items")
+        .select("empleado_id, subtotal_devengado")
+        .in("quincena_id", lastQIds);
+
+      // Sum the last month's quincenas per employee to get monthly salary
+      const empMensual = new Map<string, { total: number; quincenas: number }>();
+      for (const ni of lastNomina || []) {
+        const prev = empMensual.get(ni.empleado_id) || { total: 0, quincenas: 0 };
+        prev.total += Number(ni.subtotal_devengado || 0);
+        prev.quincenas += 1;
+        empMensual.set(ni.empleado_id, prev);
+      }
+
+      const results: RegaliaItem[] = [];
+      for (const emp of empleados) {
+        const data = empMensual.get(emp.id);
+        // If no recent data, use sueldo_quincenal * 2 as monthly estimate
+        const mensual = data ? data.total : emp.sueldo_quincenal * 2;
+        const proyeccionAnual = mensual * 12;
+        const montoRegalia = Math.round((proyeccionAnual / 12) * 100) / 100; // = mensual
+
+        const fechaIngreso = new Date(emp.fecha_ingreso);
+        const yearStartDate = new Date(`${selectedYear}-01-01`);
+        const effectiveStart = fechaIngreso > yearStartDate ? fechaIngreso : yearStartDate;
+        const yearEndDate = new Date(`${selectedYear}-12-31`);
+        const monthsDiff =
+          (yearEndDate.getFullYear() - effectiveStart.getFullYear()) * 12 +
+          (yearEndDate.getMonth() - effectiveStart.getMonth()) + 1;
+        const mesesTrabajados = Math.min(12, Math.max(1, monthsDiff));
+
+        // Proportional if < 12 months
+        const regaliaProporcional = Math.round((montoRegalia * mesesTrabajados / 12) * 100) / 100;
+
+        results.push({
+          empleadoId: emp.id,
+          empleado: emp,
+          totalDevengadoAnual: proyeccionAnual,
+          mesesTrabajados,
+          montoRegalia: regaliaProporcional,
+          quincenasProcesadas: data?.quincenas || 0,
+        });
+      }
+
+      results.sort((a, b) => a.empleado.apellido.localeCompare(b.empleado.apellido));
+      setProjectionItems(results);
+      setProjectionCalculated(true);
+      setShowProjection(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Error al proyectar");
+    } finally {
+      setProjectionLoading(false);
+    }
+  }
 
   function handleExportPDF() {
     const columns = [
@@ -350,6 +436,14 @@ export function RegaliaPascualClient({ empleados, quincenas }: Props) {
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}
             Calcular Regalía Pascual {selectedYear}
           </button>
+          <button
+            onClick={calcularProyeccion}
+            disabled={projectionLoading}
+            className="inline-flex items-center gap-2 bg-cyan-500 hover:bg-cyan-600 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors disabled:opacity-50 text-sm"
+          >
+            {projectionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <TrendingUp className="h-4 w-4" />}
+            Proyectar Regalía {selectedYear}
+          </button>
         </div>
 
         {error && (
@@ -485,6 +579,104 @@ export function RegaliaPascualClient({ empleados, quincenas }: Props) {
             </div>
           </div>
         </>
+      )}
+
+      {/* ================================================================== */}
+      {/* PROYECCIÓN DE REGALÍA PASCUAL                                       */}
+      {/* ================================================================== */}
+      {showProjection && projectionCalculated && (
+        <div className="mt-8">
+          <div className="flex items-center gap-3 mb-4">
+            <TrendingUp className="h-6 w-6 text-cyan-500" />
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">
+                Proyección de Regalía Pascual {selectedYear}
+              </h2>
+              <p className="text-sm text-gray-500">
+                Estimación basada en el sueldo del último mes proyectado al año completo
+              </p>
+            </div>
+            <button
+              onClick={() => setShowProjection(false)}
+              className="ml-auto text-gray-400 hover:text-gray-600 text-sm"
+            >
+              Ocultar
+            </button>
+          </div>
+
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+            <div className="bg-white rounded-xl border border-cyan-200 p-4 shadow-sm">
+              <p className="text-xs text-gray-500">Empleados</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{projectionItems.length}</p>
+            </div>
+            <div className="bg-white rounded-xl border border-cyan-200 p-4 shadow-sm">
+              <p className="text-xs text-gray-500">Devengado Anual Proyectado</p>
+              <p className="text-xl font-bold text-gray-900 mt-1">{formatCurrency(totalProjectedDevengado)}</p>
+            </div>
+            <div className="bg-white rounded-xl border border-cyan-200 p-4 shadow-sm">
+              <p className="text-xs text-gray-500">Regalía Proyectada Total</p>
+              <p className="text-xl font-bold text-cyan-600 mt-1">{formatCurrency(totalProjection)}</p>
+            </div>
+            <div className="bg-white rounded-xl border border-cyan-200 p-4 shadow-sm">
+              <p className="text-xs text-gray-500">Promedio por Empleado</p>
+              <p className="text-xl font-bold text-gray-900 mt-1">
+                {projectionItems.length > 0 ? formatCurrency(totalProjection / projectionItems.length) : "—"}
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-3 mb-4 text-sm text-cyan-800">
+            <p><strong>Nota:</strong> Esta proyección toma el sueldo del último mes procesado y lo multiplica por 12 para estimar el salario anual. La regalía se prorratea según los meses trabajados en el año. Los montos reales pueden variar según horas extras, comisiones y otros ingresos durante el año.</p>
+          </div>
+
+          {/* Projection table */}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 bg-cyan-50">
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">Empleado</th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">Depto.</th>
+                    <th className="text-right px-4 py-3 font-medium text-gray-600">Sueldo Mensual</th>
+                    <th className="text-right px-4 py-3 font-medium text-gray-600">Meses</th>
+                    <th className="text-right px-4 py-3 font-medium text-gray-600">Proyección Anual</th>
+                    <th className="text-right px-4 py-3 font-medium text-cyan-700 bg-cyan-100">Regalía Proyectada</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {projectionItems.map((item) => (
+                    <tr key={item.empleadoId} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-2.5 font-medium text-gray-900">
+                        {item.empleado.apellido}, {item.empleado.nombre}
+                        <span className="block text-xs text-gray-400">{item.empleado.numero_empleado}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-600">{item.empleado.departamento || "—"}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-gray-700">
+                        {formatCurrency(item.totalDevengadoAnual / 12)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-gray-700">{item.mesesTrabajados}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-gray-900">{formatCurrency(item.totalDevengadoAnual)}</td>
+                      <td className="px-4 py-2.5 text-right font-mono font-bold text-cyan-600 bg-cyan-50/50">{formatCurrency(item.montoRegalia)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                {projectionItems.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-300 bg-navy-900 text-white font-semibold">
+                      <td className="px-4 py-3">TOTALES ({projectionItems.length} empleados)</td>
+                      <td className="px-4 py-3"></td>
+                      <td className="px-4 py-3"></td>
+                      <td className="px-4 py-3"></td>
+                      <td className="px-4 py-3 text-right font-mono">{formatCurrency(totalProjectedDevengado)}</td>
+                      <td className="px-4 py-3 text-right font-mono font-bold">{formatCurrency(totalProjection)}</td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
