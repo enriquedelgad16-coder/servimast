@@ -428,7 +428,7 @@ export function NominaGrid({
     }
   }
 
-  function handleExportPDF() {
+  async function handleExportPDF() {
     const sectionItems = nominaItems.map((item) => ({
       empleado: item.empleado ? `${item.empleado.apellido}, ${item.empleado.nombre}` : "—",
       numero: item.empleado?.numero_empleado || "",
@@ -454,7 +454,7 @@ export function NominaGrid({
       sfsPat: Number(item.sfs_patronal_monto),
       srlPat: Number(item.srl_patronal_monto),
     }));
-    generateSectionedNominaPDF({
+    await generateSectionedNominaPDF({
       title: "Nómina Quincenal",
       subtitle: quincena.descripcion || undefined,
       periodo: `${quincena.periodo_inicio} — ${quincena.periodo_fin}`,
