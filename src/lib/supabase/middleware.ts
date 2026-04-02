@@ -7,6 +7,7 @@ const ROLE_ROUTES: Record<string, string[]> = {
   admin: [
     "/dashboard",
     "/empleados",
+    "/departamentos",
     "/nomina",
     "/prestamos",
     "/vacaciones",

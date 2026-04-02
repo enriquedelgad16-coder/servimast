@@ -297,12 +297,13 @@ export async function generateSectionedNominaPDF({
     alternateRowStyles: { fillColor: [245, 248, 250] },
     styles: { lineWidth: 0.1, lineColor: [200, 200, 200] },
     columnStyles: {
-      0: { cellWidth: 50 },
+      0: { cellWidth: 45 },
+      1: { cellWidth: 16 },
       2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" },
       5: { halign: "right" }, 6: { halign: "right" },
     },
     didParseCell: (h) => totalRowStyle(h, resumenData.length),
-    margin: { left: 14, right: 14 },
+    margin: { left: 10, right: 10 },
   });
 
   // ═══════════════════════════════════════════════════
@@ -331,19 +332,20 @@ export async function generateSectionedNominaPDF({
     head: [["Empleado", "No.", "H.E. Diur.", "H.E. Noct.", "H.E. Fer.", "Inst. GPON", "Inst. Red", "Metas", "Otros Ing.", "Concepto", "Total Rem."]],
     body: [...remuData, remuTotals],
     theme: "grid",
-    headStyles: { ...headStyle, fontSize: 7 },
-    bodyStyles: { fontSize: 7, cellPadding: 1.5 },
+    headStyles: { ...headStyle, fontSize: 6.5 },
+    bodyStyles: { fontSize: 6.5, cellPadding: 1.5 },
     alternateRowStyles: { fillColor: [245, 248, 250] },
-    styles: { lineWidth: 0.1, lineColor: [200, 200, 200] },
+    styles: { lineWidth: 0.1, lineColor: [200, 200, 200], overflow: "linebreak" },
     columnStyles: {
-      0: { cellWidth: 38 },
-      9: { cellWidth: 30, fontSize: 6 },
-      2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" },
-      5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" },
-      8: { halign: "right" }, 10: { halign: "right" },
+      0: { cellWidth: 35 },
+      1: { cellWidth: 14 },
+      9: { cellWidth: 22, fontSize: 5.5 },
+      2: { halign: "right", cellWidth: 16 }, 3: { halign: "right", cellWidth: 16 }, 4: { halign: "right", cellWidth: 16 },
+      5: { halign: "right", cellWidth: 18 }, 6: { halign: "right", cellWidth: 16 }, 7: { halign: "right", cellWidth: 16 },
+      8: { halign: "right", cellWidth: 16 }, 10: { halign: "right", cellWidth: 20 },
     },
     didParseCell: (h) => totalRowStyle(h, remuData.length),
-    margin: { left: 14, right: 14 },
+    margin: { left: 10, right: 10 },
   });
 
   // ═══════════════════════════════════════════════════
@@ -375,13 +377,14 @@ export async function generateSectionedNominaPDF({
     alternateRowStyles: { fillColor: [245, 248, 250] },
     styles: { lineWidth: 0.1, lineColor: [200, 200, 200] },
     columnStyles: {
-      0: { cellWidth: 50 },
+      0: { cellWidth: 45 },
+      1: { cellWidth: 16 },
       2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" },
       5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" },
       8: { halign: "right" },
     },
     didParseCell: (h) => totalRowStyle(h, dedData.length),
-    margin: { left: 14, right: 14 },
+    margin: { left: 10, right: 10 },
   });
 
   // ═══════════════════════════════════════════════════
@@ -414,12 +417,13 @@ export async function generateSectionedNominaPDF({
     alternateRowStyles: { fillColor: [245, 248, 250] },
     styles: { lineWidth: 0.1, lineColor: [200, 200, 200] },
     columnStyles: {
-      0: { cellWidth: 50 },
+      0: { cellWidth: 45 },
+      1: { cellWidth: 16 },
       2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" },
       5: { halign: "right" },
     },
     didParseCell: (h) => totalRowStyle(h, patData.length),
-    margin: { left: 14, right: 14 },
+    margin: { left: 10, right: 10 },
   });
 
   // ── Footer on all pages ──

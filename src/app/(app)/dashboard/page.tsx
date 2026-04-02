@@ -31,6 +31,7 @@ export default async function DashboardPage() {
   const { data: quincenasRaw } = await supabase
     .from("quincenas")
     .select("id, periodo_inicio, periodo_fin, estado, descripcion, fecha_pago")
+    .in("estado", ["aprobada", "pagada"])
     .order("periodo_fin", { ascending: false })
     .limit(12);
 
@@ -128,12 +129,10 @@ export default async function DashboardPage() {
   // ---------------------------------------------------------------------------
   // Patronal rates DR: AFP 7.10%, SFS 7.09%, SRL 1.10%  (about 15.29% of salary)
   // We calculate from the last quincena's subtotal_devengado
-  const ultimaQuincenaProcesada = quincenasConTotales.find(
-    (q) => q.estado === "procesada" || q.estado === "pagada"
-  );
+  const ultimaQuincenaProcesada = quincenasConTotales[0] ?? null;
   const costoPatronalAFP = (ultimaQuincenaProcesada?.total_devengado ?? 0) * 0.071;
   const costoPatronalSFS = (ultimaQuincenaProcesada?.total_devengado ?? 0) * 0.0709;
-  const costoPatronalSRL = (ultimaQuincenaProcesada?.total_devengado ?? 0) * 0.011;
+  const costoPatronalSRL = (ultimaQuincenaProcesada?.total_devengado ?? 0) * 0.012;
   const costoPatronalTotal = costoPatronalAFP + costoPatronalSFS + costoPatronalSRL;
 
   // ---------------------------------------------------------------------------
@@ -161,10 +160,11 @@ export default async function DashboardPage() {
     return diasTranscurridos >= 60 && diasTranscurridos <= 90;
   });
 
-  // Quincenas en borrador
-  const quincenasBorrador = (quincenasRaw ?? []).filter(
-    (q) => q.estado === "borrador"
-  );
+  // Quincenas en borrador (separate query since main query filters by aprobada/pagada)
+  const { count: quincenasBorradorCount } = await supabase
+    .from("quincenas")
+    .select("id", { count: "exact", head: true })
+    .eq("estado", "borrador");
 
   // ---------------------------------------------------------------------------
   // Build props
@@ -200,7 +200,7 @@ export default async function DashboardPage() {
       alertas={{
         empleadosProbacion: empleadosProbacion.length,
         prestamosPorTerminar: prestamosPorTerminar.length,
-        quincenasBorrador: quincenasBorrador.length,
+        quincenasBorrador: quincenasBorradorCount ?? 0,
       }}
     />
   );
