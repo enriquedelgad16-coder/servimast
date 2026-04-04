@@ -84,14 +84,15 @@ export function calcularNomina(
   const valor_dia = salario_base / dias_habiles;
   const deduccion_faltas = round(input.faltas_dias * valor_dia);
 
-  // 6. BASE PARA SEGURIDAD SOCIAL
-  const base_seguridad_social = round(subtotal_devengado - deduccion_faltas);
+  // 6. BASE PARA SEGURIDAD SOCIAL (sobre sueldo base, no sobre devengado total)
+  // Ley 87-01: cotizaciones se calculan sobre el salario ordinario (sueldo base quincenal)
+  const base_seguridad_social = round(salario_base);
 
-  // 7. AFP Y SFS (Ley 87-01)
+  // 7. AFP Y SFS (Ley 87-01) — calculados sobre salario base
   const afp_monto = round(base_seguridad_social * config.afp_empleado_pct);
   const sfs_monto = round(base_seguridad_social * config.sfs_empleado_pct);
 
-  // 8. APORTES PATRONALES (para TSS — no descuentan al empleado)
+  // 8. APORTES PATRONALES (para TSS — no descuentan al empleado) — sobre salario base
   const afp_patronal = round(base_seguridad_social * config.afp_patronal_pct);
   const sfs_patronal = round(base_seguridad_social * config.sfs_patronal_pct);
   const srl_patronal = round(base_seguridad_social * config.srl_patronal_pct);

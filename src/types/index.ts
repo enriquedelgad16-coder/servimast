@@ -31,6 +31,7 @@ export interface Empleado {
   fecha_ingreso: string;
   cargo: string | null;
   departamento: string | null;
+  sucursal_id: string | null;
   tipo_contrato: TipoContrato;
   periodo_prueba_fin: string | null;
   sueldo_quincenal: number;
@@ -43,6 +44,8 @@ export interface Empleado {
   dias_vacaciones_tomados: number;
   created_at: string;
   updated_at: string;
+  // Relations
+  sucursal?: Sucursal;
 }
 
 export interface Profile {
@@ -237,6 +240,34 @@ export interface Departamento {
   activo: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface Sucursal {
+  id: string;
+  nombre: string;
+  direccion: string | null;
+  telefono: string | null;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HorasExtrasImportadas {
+  id: string;
+  quincena_id: string;
+  empleado_id: string;
+  tiempo_trabajado: number;
+  horas_regulares: number;
+  horas_extras_total: number;
+  horas_extras_25: number;
+  horas_extras_35: number;
+  monto_extras_25: number;
+  monto_extras_35: number;
+  monto_extras_total: number;
+  archivo_origen: string | null;
+  created_at: string;
+  // Relations
+  empleado?: Empleado;
 }
 
 // ===== CÁLCULOS =====

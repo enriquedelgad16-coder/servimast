@@ -443,6 +443,59 @@ CREATE POLICY "audit_log_select" ON audit_log FOR SELECT USING (get_user_role() 
 CREATE POLICY "config_select" ON configuracion_sistema FOR SELECT USING (get_user_role() IN ('admin', 'operador'));
 CREATE POLICY "config_update" ON configuracion_sistema FOR UPDATE USING (get_user_role() = 'admin');
 
+-- ===== SUCURSALES =====
+CREATE TABLE sucursales (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  nombre TEXT NOT NULL UNIQUE,
+  direccion TEXT,
+  telefono TEXT,
+  activo BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TRIGGER trg_sucursales_updated_at
+  BEFORE UPDATE ON sucursales
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- Agregar sucursal a empleados
+ALTER TABLE empleados ADD COLUMN sucursal_id UUID REFERENCES sucursales(id);
+
+-- RLS para sucursales
+ALTER TABLE sucursales ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "sucursales_select" ON sucursales FOR SELECT USING (true);
+CREATE POLICY "sucursales_insert" ON sucursales FOR INSERT WITH CHECK (get_user_role() = 'admin');
+CREATE POLICY "sucursales_update" ON sucursales FOR UPDATE USING (get_user_role() = 'admin');
+CREATE POLICY "sucursales_delete" ON sucursales FOR DELETE USING (get_user_role() = 'admin');
+
+-- Auditoría para sucursales
+CREATE TRIGGER audit_sucursales AFTER INSERT OR UPDATE OR DELETE ON sucursales
+  FOR EACH ROW EXECUTE FUNCTION audit_trigger_func();
+
+-- ===== HORAS EXTRAS IMPORTADAS =====
+CREATE TABLE horas_extras_importadas (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  quincena_id UUID NOT NULL REFERENCES quincenas(id) ON DELETE CASCADE,
+  empleado_id UUID NOT NULL REFERENCES empleados(id),
+  tiempo_trabajado NUMERIC(6,2) NOT NULL,
+  horas_regulares NUMERIC(6,2) NOT NULL DEFAULT 88,
+  horas_extras_total NUMERIC(6,2) NOT NULL DEFAULT 0,
+  horas_extras_25 NUMERIC(6,2) NOT NULL DEFAULT 0,
+  horas_extras_35 NUMERIC(6,2) NOT NULL DEFAULT 0,
+  monto_extras_25 NUMERIC(12,2) NOT NULL DEFAULT 0,
+  monto_extras_35 NUMERIC(12,2) NOT NULL DEFAULT 0,
+  monto_extras_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+  archivo_origen TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_horas_extras_quincena_empleado UNIQUE (quincena_id, empleado_id)
+);
+
+ALTER TABLE horas_extras_importadas ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "horas_extras_importadas_select" ON horas_extras_importadas FOR SELECT USING (get_user_role() IN ('admin', 'operador'));
+CREATE POLICY "horas_extras_importadas_insert" ON horas_extras_importadas FOR INSERT WITH CHECK (get_user_role() IN ('admin', 'operador'));
+CREATE POLICY "horas_extras_importadas_update" ON horas_extras_importadas FOR UPDATE USING (get_user_role() IN ('admin', 'operador'));
+CREATE POLICY "horas_extras_importadas_delete" ON horas_extras_importadas FOR DELETE USING (get_user_role() = 'admin');
+
 -- ===== INDEXES =====
 CREATE INDEX idx_empleados_estado ON empleados(estado);
 CREATE INDEX idx_empleados_cedula ON empleados(cedula);
@@ -458,6 +511,10 @@ CREATE INDEX idx_liquidaciones_empleado ON liquidaciones(empleado_id);
 CREATE INDEX idx_vacaciones_empleado ON vacaciones(empleado_id);
 CREATE INDEX idx_audit_log_tabla ON audit_log(tabla_afectada, registro_id);
 CREATE INDEX idx_audit_log_created ON audit_log(created_at DESC);
+CREATE INDEX idx_empleados_sucursal ON empleados(sucursal_id);
+CREATE INDEX idx_sucursales_activo ON sucursales(activo);
+CREATE INDEX idx_horas_extras_importadas_quincena ON horas_extras_importadas(quincena_id);
+CREATE INDEX idx_horas_extras_importadas_empleado ON horas_extras_importadas(empleado_id);
 
 -- ===== TRIGGER: Auto-crear profile al registrar usuario =====
 CREATE OR REPLACE FUNCTION handle_new_user()

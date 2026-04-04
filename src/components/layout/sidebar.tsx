@@ -16,6 +16,7 @@ import {
   ScrollText,
   Scale,
   Building2,
+  MapPin,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -46,6 +47,12 @@ const NAV_ITEMS: NavItem[] = [
     label: "Departamentos",
     href: "/departamentos",
     icon: Building2,
+    roles: ["admin"],
+  },
+  {
+    label: "Sucursales",
+    href: "/sucursales",
+    icon: MapPin,
     roles: ["admin"],
   },
   {

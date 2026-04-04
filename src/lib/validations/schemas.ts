@@ -24,6 +24,7 @@ export const empleadoSchema = z.object({
   fecha_ingreso: z.string().min(1, "La fecha de ingreso es requerida"),
   cargo: z.string().optional().nullable(),
   departamento: z.string().optional().nullable(),
+  sucursal_id: z.string().optional().nullable(),
   tipo_contrato: z.enum(["determinado", "indeterminado"]).default("indeterminado"),
   periodo_prueba_fin: z.string().optional().nullable(),
   sueldo_quincenal: z

@@ -47,6 +47,7 @@ type FilterType =
   | "quincena"
   | "dateRange"
   | "departamento"
+  | "sucursal"
   | "empleado"
   | "estado"
   | "quincenaCompare";
@@ -73,6 +74,7 @@ interface Filters {
   fechaDesde: string;
   fechaHasta: string;
   departamento: string;
+  sucursalId: string;
   empleadoId: string;
   estado: string;
 }
@@ -266,24 +268,105 @@ const REPORTES: ReportDef[] = [
     categoria: "Resúmenes Gerenciales",
     filtros: ["quincena"],
   },
+  // ---- Horas Extras ----
+  {
+    id: "horas_extras_sucursal",
+    nombre: "Horas Extras por Sucursal",
+    descripcion: "Detalle de horas extras y montos pagados agrupados por sucursal",
+    icon: <Clock className="h-5 w-5" />,
+    categoria: "Horas Extras",
+    filtros: ["dateRange", "sucursal"],
+  },
+  {
+    id: "horas_extras_departamento",
+    nombre: "Horas Extras por Departamento",
+    descripcion: "Horas extras desglosadas por departamento en un período",
+    icon: <Clock className="h-5 w-5" />,
+    categoria: "Horas Extras",
+    filtros: ["dateRange", "departamento"],
+  },
+  {
+    id: "horas_extras_detalle",
+    nombre: "Detalle de Horas Extras Importadas",
+    descripcion: "Registro detallado de horas extras calculadas desde Excel por quincena",
+    icon: <Clock className="h-5 w-5" />,
+    categoria: "Horas Extras",
+    filtros: ["quincena", "sucursal"],
+  },
+  // ---- Sucursales ----
+  {
+    id: "nomina_sucursal",
+    nombre: "Nómina por Sucursal",
+    descripcion: "Resumen de nómina desglosado por cada sucursal",
+    icon: <Building2 className="h-5 w-5" />,
+    categoria: "Sucursales",
+    filtros: ["quincena"],
+  },
+  {
+    id: "empleados_sucursal",
+    nombre: "Empleados por Sucursal",
+    descripcion: "Lista de empleados agrupados por sucursal con subtotales de sueldo",
+    icon: <Users className="h-5 w-5" />,
+    categoria: "Sucursales",
+    filtros: ["sucursal"],
+  },
+  {
+    id: "costo_sucursal_departamento",
+    nombre: "Costo por Sucursal y Departamento",
+    descripcion: "Análisis cruzado de costos de nómina por sucursal y departamento",
+    icon: <DollarSign className="h-5 w-5" />,
+    categoria: "Sucursales",
+    filtros: ["quincena"],
+  },
+  // ---- Análisis Especiales ----
+  {
+    id: "analisis_productividad",
+    nombre: "Análisis de Productividad Laboral",
+    descripcion: "Relación horas extras vs salario base por empleado — identifica sobrecarga",
+    icon: <TrendingUp className="h-5 w-5" />,
+    categoria: "Análisis Especiales",
+    filtros: ["quincena"],
+  },
+  {
+    id: "analisis_costo_hora_extra",
+    nombre: "Impacto Económico de Horas Extras",
+    descripcion: "Análisis del costo total de horas extras vs nómina regular por período",
+    icon: <DollarSign className="h-5 w-5" />,
+    categoria: "Análisis Especiales",
+    filtros: ["dateRange"],
+  },
+  {
+    id: "analisis_rotacion_costos",
+    nombre: "Dashboard de Costos Laborales",
+    descripcion: "Resumen ejecutivo: nómina, patronal, extras, préstamos por sucursal",
+    icon: <PieChart className="h-5 w-5" />,
+    categoria: "Análisis Especiales",
+    filtros: ["quincena"],
+  },
 ];
 
 const CATEGORIAS_ORDER = [
   "Empleados",
   "Nómina",
+  "Horas Extras",
+  "Sucursales",
   "Préstamos",
   "Deducciones y TSS",
   "Vacaciones y Liquidaciones",
   "Resúmenes Gerenciales",
+  "Análisis Especiales",
 ];
 
 const CATEGORIA_ICONS: Record<string, React.ReactNode> = {
   Empleados: <Users className="h-5 w-5" />,
   "Nómina": <Calculator className="h-5 w-5" />,
+  "Horas Extras": <Clock className="h-5 w-5" />,
+  "Sucursales": <Building2 className="h-5 w-5" />,
   "Préstamos": <Wallet className="h-5 w-5" />,
   "Deducciones y TSS": <Shield className="h-5 w-5" />,
   "Vacaciones y Liquidaciones": <Calendar className="h-5 w-5" />,
   "Resúmenes Gerenciales": <TrendingUp className="h-5 w-5" />,
+  "Análisis Especiales": <BarChart3 className="h-5 w-5" />,
 };
 
 // ---------------------------------------------------------------------------
@@ -313,6 +396,7 @@ export default function ReportesPage() {
     fechaDesde: "",
     fechaHasta: "",
     departamento: "",
+    sucursalId: "",
     empleadoId: "",
     estado: "",
   });
@@ -321,6 +405,7 @@ export default function ReportesPage() {
   const [quincenas, setQuincenas] = useState<Quincena[]>([]);
   const [empleados, setEmpleados] = useState<Empleado[]>([]);
   const [departamentos, setDepartamentos] = useState<string[]>([]);
+  const [sucursalesList, setSucursalesList] = useState<{ id: string; nombre: string }[]>([]);
 
   // Report result
   const [reportResult, setReportResult] = useState<ReportResult | null>(null);
@@ -339,7 +424,7 @@ export default function ReportesPage() {
   async function loadDropdownData() {
     const supabase = createClient();
 
-    const [qRes, eRes, dRes] = await Promise.all([
+    const [qRes, eRes, dRes, sRes] = await Promise.all([
       supabase
         .from("quincenas")
         .select("id, periodo_inicio, periodo_fin, estado, descripcion, fecha_pago")
@@ -354,6 +439,11 @@ export default function ReportesPage() {
         .select("departamento")
         .eq("estado", "activo")
         .not("departamento", "is", null),
+      supabase
+        .from("sucursales")
+        .select("id, nombre")
+        .eq("activo", true)
+        .order("nombre"),
     ]);
 
     if (qRes.data) setQuincenas(qRes.data);
@@ -368,6 +458,7 @@ export default function ReportesPage() {
       ].sort();
       setDepartamentos(depts);
     }
+    if (sRes.data) setSucursalesList(sRes.data);
   }
 
   function handleSelectReport(report: ReportDef) {
@@ -380,6 +471,7 @@ export default function ReportesPage() {
       fechaDesde: "",
       fechaHasta: "",
       departamento: "",
+      sucursalId: "",
       empleadoId: "",
       estado: "",
     });
@@ -655,6 +747,29 @@ export default function ReportesPage() {
                     {departamentos.map((d) => (
                       <option key={d} value={d}>
                         {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Sucursal */}
+              {selectedReport.filtros.includes("sucursal") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Sucursal
+                  </label>
+                  <select
+                    value={filters.sucursalId}
+                    onChange={(e) =>
+                      setFilters((f) => ({ ...f, sucursalId: e.target.value }))
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  >
+                    <option value="">Todas las sucursales</option>
+                    {sucursalesList.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.nombre}
                       </option>
                     ))}
                   </select>
@@ -2095,6 +2210,498 @@ async function buildReport(
           ? `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}`
           : "",
         subtitle: q?.descripcion || "Análisis por Departamento",
+      };
+    }
+
+    // =====================================================================
+    // HORAS EXTRAS
+    // =====================================================================
+    case "horas_extras_sucursal": {
+      if (!filters.fechaDesde || !filters.fechaHasta) throw new Error("Seleccione rango de fechas");
+
+      const { data: quincenasInRange } = await supabase
+        .from("quincenas")
+        .select("id, periodo_inicio, periodo_fin")
+        .gte("periodo_inicio", filters.fechaDesde)
+        .lte("periodo_inicio", filters.fechaHasta);
+
+      const qIds = (quincenasInRange || []).map((q) => q.id);
+      if (qIds.length === 0) throw new Error("No hay quincenas en ese rango");
+
+      let query = supabase
+        .from("nomina_items")
+        .select("*, empleado:empleados(nombre, apellido, departamento, sucursal_id, sucursal:sucursales(nombre))")
+        .in("quincena_id", qIds);
+
+      const { data: items, error } = await query;
+      if (error) throw error;
+
+      // Group by sucursal
+      const bySucursal: Record<string, { nombre: string; horas_diurnas: number; horas_nocturnas: number; horas_feriados: number; monto_diurnas: number; monto_nocturnas: number; monto_feriados: number; empleados: number }> = {};
+
+      for (const item of items || []) {
+        const emp = unwrap<{ nombre: string; apellido: string; departamento: string; sucursal_id: string; sucursal: { nombre: string } | { nombre: string }[] }>(item.empleado);
+        const sucName = emp?.sucursal ? (Array.isArray(emp.sucursal) ? emp.sucursal[0]?.nombre : emp.sucursal?.nombre) || "Sin Sucursal" : "Sin Sucursal";
+
+        if (filters.sucursalId && emp?.sucursal_id !== filters.sucursalId) continue;
+
+        if (!bySucursal[sucName]) bySucursal[sucName] = { nombre: sucName, horas_diurnas: 0, horas_nocturnas: 0, horas_feriados: 0, monto_diurnas: 0, monto_nocturnas: 0, monto_feriados: 0, empleados: 0 };
+        const g = bySucursal[sucName];
+        g.horas_diurnas += Number(item.horas_extras_diurnas);
+        g.horas_nocturnas += Number(item.horas_extras_nocturnas);
+        g.horas_feriados += Number(item.horas_extras_feriados);
+        g.monto_diurnas += Number(item.monto_extras_diurnas);
+        g.monto_nocturnas += Number(item.monto_extras_nocturnas);
+        g.monto_feriados += Number(item.monto_extras_feriados);
+        g.empleados++;
+      }
+
+      const rows = Object.values(bySucursal).map((g) => ({
+        ...g,
+        total_horas: g.horas_diurnas + g.horas_nocturnas + g.horas_feriados,
+        total_monto: g.monto_diurnas + g.monto_nocturnas + g.monto_feriados,
+      }));
+
+      const sumF = (k: string) => rows.reduce((s, r) => s + (Number((r as Record<string, unknown>)[k]) || 0), 0);
+      return {
+        columns: [
+          { key: "nombre", label: "Sucursal" },
+          { key: "empleados", label: "Empleados", align: "right" as const },
+          { key: "horas_diurnas", label: "H. al 25%", align: "right" as const },
+          { key: "horas_nocturnas", label: "H. al 35%", align: "right" as const },
+          { key: "horas_feriados", label: "H. Feriados", align: "right" as const },
+          { key: "total_horas", label: "Total Horas", align: "right" as const },
+          { key: "monto_diurnas", label: "Monto 25%", align: "right" as const },
+          { key: "monto_nocturnas", label: "Monto 35%", align: "right" as const },
+          { key: "monto_feriados", label: "Monto Fer.", align: "right" as const },
+          { key: "total_monto", label: "Total Extras RD$", align: "right" as const },
+        ],
+        data: rows,
+        totals: {
+          nombre: "TOTAL",
+          empleados: sumF("empleados"),
+          total_horas: sumF("total_horas"),
+          total_monto: sumF("total_monto"),
+          monto_diurnas: sumF("monto_diurnas"),
+          monto_nocturnas: sumF("monto_nocturnas"),
+          monto_feriados: sumF("monto_feriados"),
+        },
+        periodo: `${formatDate(filters.fechaDesde)} - ${formatDate(filters.fechaHasta)}`,
+        subtitle: "Horas Extras por Sucursal",
+      };
+    }
+
+    case "horas_extras_departamento": {
+      if (!filters.fechaDesde || !filters.fechaHasta) throw new Error("Seleccione rango de fechas");
+
+      const { data: quincenasInRange } = await supabase
+        .from("quincenas")
+        .select("id")
+        .gte("periodo_inicio", filters.fechaDesde)
+        .lte("periodo_inicio", filters.fechaHasta);
+
+      const qIds = (quincenasInRange || []).map((q) => q.id);
+      if (qIds.length === 0) throw new Error("No hay quincenas en ese rango");
+
+      const { data: items, error } = await supabase
+        .from("nomina_items")
+        .select("*, empleado:empleados(nombre, apellido, departamento)")
+        .in("quincena_id", qIds);
+      if (error) throw error;
+
+      const byDept: Record<string, { departamento: string; horas_diurnas: number; horas_nocturnas: number; horas_feriados: number; monto_total: number; empleados: number }> = {};
+
+      for (const item of items || []) {
+        const emp = unwrap<{ nombre: string; apellido: string; departamento: string }>(item.empleado);
+        const dept = emp?.departamento || "Sin Departamento";
+        if (filters.departamento && dept !== filters.departamento) continue;
+
+        if (!byDept[dept]) byDept[dept] = { departamento: dept, horas_diurnas: 0, horas_nocturnas: 0, horas_feriados: 0, monto_total: 0, empleados: 0 };
+        byDept[dept].horas_diurnas += Number(item.horas_extras_diurnas);
+        byDept[dept].horas_nocturnas += Number(item.horas_extras_nocturnas);
+        byDept[dept].horas_feriados += Number(item.horas_extras_feriados);
+        byDept[dept].monto_total += Number(item.monto_extras_diurnas) + Number(item.monto_extras_nocturnas) + Number(item.monto_extras_feriados);
+        byDept[dept].empleados++;
+      }
+
+      const rows = Object.values(byDept).map((g) => ({
+        ...g,
+        total_horas: g.horas_diurnas + g.horas_nocturnas + g.horas_feriados,
+      }));
+
+      const sumF = (k: string) => rows.reduce((s, r) => s + (Number((r as Record<string, unknown>)[k]) || 0), 0);
+      return {
+        columns: [
+          { key: "departamento", label: "Departamento" },
+          { key: "empleados", label: "Empleados", align: "right" as const },
+          { key: "horas_diurnas", label: "H. al 25%", align: "right" as const },
+          { key: "horas_nocturnas", label: "H. al 35%", align: "right" as const },
+          { key: "horas_feriados", label: "H. Feriados", align: "right" as const },
+          { key: "total_horas", label: "Total Horas", align: "right" as const },
+          { key: "monto_total", label: "Total Extras RD$", align: "right" as const },
+        ],
+        data: rows,
+        totals: { departamento: "TOTAL", total_horas: sumF("total_horas"), monto_total: sumF("monto_total") },
+        periodo: `${formatDate(filters.fechaDesde)} - ${formatDate(filters.fechaHasta)}`,
+      };
+    }
+
+    case "horas_extras_detalle": {
+      if (!filters.quincenaId) throw new Error("Seleccione una quincena");
+
+      let query = supabase
+        .from("horas_extras_importadas")
+        .select("*, empleado:empleados(nombre, apellido, cargo, departamento, sucursal_id, tarifa_hora)")
+        .eq("quincena_id", filters.quincenaId);
+
+      const { data: items, error } = await query;
+      if (error) throw error;
+
+      const rows = (items || []).map((item) => {
+        const emp = unwrap<{ nombre: string; apellido: string; cargo: string; departamento: string; sucursal_id: string; tarifa_hora: number }>(item.empleado);
+        return {
+          nombre: emp ? `${emp.nombre} ${emp.apellido}` : "—",
+          cargo: emp?.cargo || "",
+          departamento: emp?.departamento || "",
+          tarifa_hora: emp?.tarifa_hora || 0,
+          tiempo_trabajado: item.tiempo_trabajado,
+          horas_regulares: item.horas_regulares,
+          horas_extras_total: item.horas_extras_total,
+          horas_extras_25: item.horas_extras_25,
+          horas_extras_35: item.horas_extras_35,
+          monto_extras_25: item.monto_extras_25,
+          monto_extras_35: item.monto_extras_35,
+          monto_extras_total: item.monto_extras_total,
+        };
+      });
+
+      const sumF = (k: string) => rows.reduce((s, r) => s + (Number((r as Record<string, unknown>)[k]) || 0), 0);
+      return {
+        columns: [
+          { key: "nombre", label: "Empleado" },
+          { key: "cargo", label: "Cargo" },
+          { key: "tarifa_hora", label: "Tarifa/h", align: "right" as const },
+          { key: "tiempo_trabajado", label: "Tiempo Trab.", align: "right" as const },
+          { key: "horas_regulares", label: "H. Regulares", align: "right" as const },
+          { key: "horas_extras_total", label: "H. Extras", align: "right" as const },
+          { key: "horas_extras_25", label: "H. al 25%", align: "right" as const },
+          { key: "horas_extras_35", label: "H. al 35%", align: "right" as const },
+          { key: "monto_extras_25", label: "Monto 25%", align: "right" as const },
+          { key: "monto_extras_35", label: "Monto 35%", align: "right" as const },
+          { key: "monto_extras_total", label: "Total Extras", align: "right" as const },
+        ],
+        data: rows,
+        totals: {
+          nombre: `TOTAL (${rows.length})`,
+          horas_extras_total: sumF("horas_extras_total"),
+          monto_extras_total: sumF("monto_extras_total"),
+        },
+        subtitle: "Horas Extras Importadas desde Excel",
+      };
+    }
+
+    // =====================================================================
+    // SUCURSALES
+    // =====================================================================
+    case "nomina_sucursal": {
+      if (!filters.quincenaId) throw new Error("Seleccione una quincena");
+
+      const { data: items, error } = await supabase
+        .from("nomina_items")
+        .select("*, empleado:empleados(nombre, apellido, sucursal_id, sucursal:sucursales(nombre))")
+        .eq("quincena_id", filters.quincenaId);
+      if (error) throw error;
+
+      const bySuc: Record<string, { sucursal: string; empleados: number; devengado: number; deducciones: number; neto: number; patronal: number }> = {};
+
+      for (const item of items || []) {
+        const emp = unwrap<{ nombre: string; apellido: string; sucursal_id: string; sucursal: { nombre: string } | { nombre: string }[] }>(item.empleado);
+        const sucName = emp?.sucursal ? (Array.isArray(emp.sucursal) ? emp.sucursal[0]?.nombre : emp.sucursal?.nombre) || "Sin Sucursal" : "Sin Sucursal";
+
+        if (!bySuc[sucName]) bySuc[sucName] = { sucursal: sucName, empleados: 0, devengado: 0, deducciones: 0, neto: 0, patronal: 0 };
+        bySuc[sucName].empleados++;
+        bySuc[sucName].devengado += Number(item.subtotal_devengado);
+        bySuc[sucName].deducciones += Number(item.total_deducciones);
+        bySuc[sucName].neto += Number(item.total_neto);
+        bySuc[sucName].patronal += Number(item.afp_patronal_monto) + Number(item.sfs_patronal_monto) + Number(item.srl_patronal_monto);
+      }
+
+      const rows = Object.values(bySuc).map((g) => ({ ...g, costo_total: g.devengado + g.patronal }));
+      const sumF = (k: string) => rows.reduce((s, r) => s + (Number((r as Record<string, unknown>)[k]) || 0), 0);
+
+      const { data: q } = await supabase.from("quincenas").select("*").eq("id", filters.quincenaId).single();
+
+      return {
+        columns: [
+          { key: "sucursal", label: "Sucursal" },
+          { key: "empleados", label: "Empleados", align: "right" as const },
+          { key: "devengado", label: "Devengado", align: "right" as const },
+          { key: "deducciones", label: "Deducciones", align: "right" as const },
+          { key: "neto", label: "Neto a Pagar", align: "right" as const },
+          { key: "patronal", label: "Patronal", align: "right" as const },
+          { key: "costo_total", label: "Costo Total", align: "right" as const },
+        ],
+        data: rows,
+        totals: { sucursal: "TOTAL", empleados: sumF("empleados"), devengado: sumF("devengado"), deducciones: sumF("deducciones"), neto: sumF("neto"), patronal: sumF("patronal"), costo_total: sumF("costo_total") },
+        periodo: q ? `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}` : "",
+        subtitle: "Nómina por Sucursal",
+      };
+    }
+
+    case "empleados_sucursal": {
+      const { data: emps, error } = await supabase
+        .from("empleados")
+        .select("*, sucursal:sucursales(nombre)")
+        .eq("estado", "activo")
+        .order("apellido");
+      if (error) throw error;
+
+      let filtered = emps || [];
+      if (filters.sucursalId) {
+        filtered = filtered.filter((e) => e.sucursal_id === filters.sucursalId);
+      }
+
+      const rows = filtered.map((e) => {
+        const suc = unwrap<{ nombre: string }>(e.sucursal);
+        return {
+          sucursal: suc?.nombre || "Sin Sucursal",
+          numero_empleado: e.numero_empleado,
+          nombre: `${e.nombre} ${e.apellido}`,
+          cargo: e.cargo || "",
+          departamento: e.departamento || "",
+          sueldo_quincenal: e.sueldo_quincenal,
+        };
+      });
+
+      const totalSueldo = rows.reduce((s, r) => s + (r.sueldo_quincenal || 0), 0);
+      return {
+        columns: [
+          { key: "sucursal", label: "Sucursal" },
+          { key: "numero_empleado", label: "No. Emp" },
+          { key: "nombre", label: "Nombre" },
+          { key: "cargo", label: "Cargo" },
+          { key: "departamento", label: "Depto." },
+          { key: "sueldo_quincenal", label: "Sueldo Quinc.", align: "right" as const },
+        ],
+        data: rows,
+        totals: { sucursal: `TOTAL (${rows.length} empleados)`, sueldo_quincenal: totalSueldo },
+      };
+    }
+
+    case "costo_sucursal_departamento": {
+      if (!filters.quincenaId) throw new Error("Seleccione una quincena");
+
+      const { data: items, error } = await supabase
+        .from("nomina_items")
+        .select("*, empleado:empleados(departamento, sucursal_id, sucursal:sucursales(nombre))")
+        .eq("quincena_id", filters.quincenaId);
+      if (error) throw error;
+
+      const matrix: Record<string, { sucursal: string; departamento: string; empleados: number; devengado: number; neto: number; costo_total: number }> = {};
+
+      for (const item of items || []) {
+        const emp = unwrap<{ departamento: string; sucursal_id: string; sucursal: { nombre: string } | { nombre: string }[] }>(item.empleado);
+        const suc = emp?.sucursal ? (Array.isArray(emp.sucursal) ? emp.sucursal[0]?.nombre : emp.sucursal?.nombre) || "Sin Sucursal" : "Sin Sucursal";
+        const dept = emp?.departamento || "Sin Depto.";
+        const key = `${suc}||${dept}`;
+
+        if (!matrix[key]) matrix[key] = { sucursal: suc, departamento: dept, empleados: 0, devengado: 0, neto: 0, costo_total: 0 };
+        matrix[key].empleados++;
+        matrix[key].devengado += Number(item.subtotal_devengado);
+        matrix[key].neto += Number(item.total_neto);
+        matrix[key].costo_total += Number(item.subtotal_devengado) + Number(item.afp_patronal_monto) + Number(item.sfs_patronal_monto) + Number(item.srl_patronal_monto);
+      }
+
+      const rows = Object.values(matrix);
+      const sumF = (k: string) => rows.reduce((s, r) => s + (Number((r as Record<string, unknown>)[k]) || 0), 0);
+
+      return {
+        columns: [
+          { key: "sucursal", label: "Sucursal" },
+          { key: "departamento", label: "Departamento" },
+          { key: "empleados", label: "Empleados", align: "right" as const },
+          { key: "devengado", label: "Devengado", align: "right" as const },
+          { key: "neto", label: "Neto", align: "right" as const },
+          { key: "costo_total", label: "Costo Total", align: "right" as const },
+        ],
+        data: rows,
+        totals: { sucursal: "TOTAL", empleados: sumF("empleados"), devengado: sumF("devengado"), neto: sumF("neto"), costo_total: sumF("costo_total") },
+        subtitle: "Análisis Cruzado Sucursal × Departamento",
+      };
+    }
+
+    // =====================================================================
+    // ANÁLISIS ESPECIALES
+    // =====================================================================
+    case "analisis_productividad": {
+      if (!filters.quincenaId) throw new Error("Seleccione una quincena");
+
+      const { data: items, error } = await supabase
+        .from("nomina_items")
+        .select("*, empleado:empleados(nombre, apellido, cargo, departamento, sueldo_quincenal)")
+        .eq("quincena_id", filters.quincenaId);
+      if (error) throw error;
+
+      const rows = (items || []).map((item) => {
+        const emp = unwrap<{ nombre: string; apellido: string; cargo: string; departamento: string; sueldo_quincenal: number }>(item.empleado);
+        const totalExtras = Number(item.monto_extras_diurnas) + Number(item.monto_extras_nocturnas) + Number(item.monto_extras_feriados);
+        const horasExtras = Number(item.horas_extras_diurnas) + Number(item.horas_extras_nocturnas) + Number(item.horas_extras_feriados);
+        const salarioBase = Number(item.salario_base_calc);
+        const pctExtras = salarioBase > 0 ? Math.round((totalExtras / salarioBase) * 10000) / 100 : 0;
+
+        return {
+          nombre: emp ? `${emp.nombre} ${emp.apellido}` : "—",
+          cargo: emp?.cargo || "",
+          departamento: emp?.departamento || "",
+          salario_base: salarioBase,
+          horas_extras: horasExtras,
+          monto_extras: totalExtras,
+          pct_extras: pctExtras,
+          devengado: Number(item.subtotal_devengado),
+          neto: Number(item.total_neto),
+          alerta: pctExtras > 30 ? "ALTA CARGA" : pctExtras > 15 ? "MODERADA" : "",
+        };
+      }).sort((a, b) => b.pct_extras - a.pct_extras);
+
+      return {
+        columns: [
+          { key: "nombre", label: "Empleado" },
+          { key: "cargo", label: "Cargo" },
+          { key: "departamento", label: "Depto." },
+          { key: "salario_base", label: "Salario Base", align: "right" as const },
+          { key: "horas_extras", label: "H. Extras", align: "right" as const },
+          { key: "monto_extras", label: "Monto Extras", align: "right" as const },
+          { key: "pct_extras", label: "% Extras/Base", align: "right" as const },
+          { key: "devengado", label: "Devengado", align: "right" as const },
+          { key: "alerta", label: "Alerta" },
+        ],
+        data: rows,
+        subtitle: "Análisis de Productividad — Empleados ordenados por % de horas extras sobre salario base",
+      };
+    }
+
+    case "analisis_costo_hora_extra": {
+      if (!filters.fechaDesde || !filters.fechaHasta) throw new Error("Seleccione rango de fechas");
+
+      const { data: quincenasInRange } = await supabase
+        .from("quincenas")
+        .select("id, periodo_inicio, periodo_fin, descripcion")
+        .gte("periodo_inicio", filters.fechaDesde)
+        .lte("periodo_inicio", filters.fechaHasta)
+        .order("periodo_inicio");
+
+      if (!quincenasInRange?.length) throw new Error("No hay quincenas en ese rango");
+
+      const rows: Record<string, unknown>[] = [];
+      for (const q of quincenasInRange) {
+        const { data: items } = await supabase
+          .from("nomina_items")
+          .select("salario_base_calc, monto_extras_diurnas, monto_extras_nocturnas, monto_extras_feriados, subtotal_devengado, horas_extras_diurnas, horas_extras_nocturnas, horas_extras_feriados")
+          .eq("quincena_id", q.id);
+
+        const totalBase = (items || []).reduce((s, i) => s + Number(i.salario_base_calc), 0);
+        const totalExtras = (items || []).reduce((s, i) => s + Number(i.monto_extras_diurnas) + Number(i.monto_extras_nocturnas) + Number(i.monto_extras_feriados), 0);
+        const totalHoras = (items || []).reduce((s, i) => s + Number(i.horas_extras_diurnas) + Number(i.horas_extras_nocturnas) + Number(i.horas_extras_feriados), 0);
+        const totalDevengado = (items || []).reduce((s, i) => s + Number(i.subtotal_devengado), 0);
+        const pct = totalDevengado > 0 ? Math.round((totalExtras / totalDevengado) * 10000) / 100 : 0;
+
+        rows.push({
+          periodo: `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}`,
+          descripcion: q.descripcion || "",
+          empleados: (items || []).length,
+          nomina_base: totalBase,
+          total_horas_extras: totalHoras,
+          monto_horas_extras: totalExtras,
+          total_devengado: totalDevengado,
+          pct_extras: pct,
+        });
+      }
+
+      const sumF = (k: string) => rows.reduce((s, r) => s + (Number((r as Record<string, unknown>)[k]) || 0), 0);
+      return {
+        columns: [
+          { key: "periodo", label: "Período" },
+          { key: "empleados", label: "Empleados", align: "right" as const },
+          { key: "nomina_base", label: "Nómina Base", align: "right" as const },
+          { key: "total_horas_extras", label: "Total H. Extras", align: "right" as const },
+          { key: "monto_horas_extras", label: "Costo H. Extras", align: "right" as const },
+          { key: "total_devengado", label: "Total Devengado", align: "right" as const },
+          { key: "pct_extras", label: "% Extras", align: "right" as const },
+        ],
+        data: rows,
+        totals: {
+          periodo: "TOTALES",
+          nomina_base: sumF("nomina_base"),
+          total_horas_extras: sumF("total_horas_extras"),
+          monto_horas_extras: sumF("monto_horas_extras"),
+          total_devengado: sumF("total_devengado"),
+        },
+        periodo: `${formatDate(filters.fechaDesde)} - ${formatDate(filters.fechaHasta)}`,
+        subtitle: "Impacto Económico de Horas Extras — Tendencia por Quincena",
+      };
+    }
+
+    case "analisis_rotacion_costos": {
+      if (!filters.quincenaId) throw new Error("Seleccione una quincena");
+
+      const { data: items, error } = await supabase
+        .from("nomina_items")
+        .select("*, empleado:empleados(sucursal_id, sucursal:sucursales(nombre))")
+        .eq("quincena_id", filters.quincenaId);
+      if (error) throw error;
+
+      const bySuc: Record<string, { sucursal: string; empleados: number; salario_base: number; extras: number; devengado: number; deducciones: number; neto: number; patronal: number; prestamos: number; costo_total: number }> = {};
+
+      for (const item of items || []) {
+        const emp = unwrap<{ sucursal_id: string; sucursal: { nombre: string } | { nombre: string }[] }>(item.empleado);
+        const suc = emp?.sucursal ? (Array.isArray(emp.sucursal) ? emp.sucursal[0]?.nombre : emp.sucursal?.nombre) || "Sin Sucursal" : "Sin Sucursal";
+
+        if (!bySuc[suc]) bySuc[suc] = { sucursal: suc, empleados: 0, salario_base: 0, extras: 0, devengado: 0, deducciones: 0, neto: 0, patronal: 0, prestamos: 0, costo_total: 0 };
+        const g = bySuc[suc];
+        g.empleados++;
+        g.salario_base += Number(item.salario_base_calc);
+        g.extras += Number(item.monto_extras_diurnas) + Number(item.monto_extras_nocturnas) + Number(item.monto_extras_feriados);
+        g.devengado += Number(item.subtotal_devengado);
+        g.deducciones += Number(item.total_deducciones);
+        g.neto += Number(item.total_neto);
+        g.patronal += Number(item.afp_patronal_monto) + Number(item.sfs_patronal_monto) + Number(item.srl_patronal_monto);
+        g.prestamos += Number(item.deduccion_prestamos);
+        g.costo_total = g.devengado + g.patronal;
+      }
+
+      const rows = Object.values(bySuc);
+      const sumF = (k: string) => rows.reduce((s, r) => s + (Number((r as Record<string, unknown>)[k]) || 0), 0);
+
+      const { data: q } = await supabase.from("quincenas").select("*").eq("id", filters.quincenaId).single();
+
+      return {
+        columns: [
+          { key: "sucursal", label: "Sucursal" },
+          { key: "empleados", label: "Empl.", align: "right" as const },
+          { key: "salario_base", label: "Salarios Base", align: "right" as const },
+          { key: "extras", label: "H. Extras", align: "right" as const },
+          { key: "devengado", label: "Devengado", align: "right" as const },
+          { key: "deducciones", label: "Deducciones", align: "right" as const },
+          { key: "neto", label: "Neto", align: "right" as const },
+          { key: "patronal", label: "Patronal", align: "right" as const },
+          { key: "prestamos", label: "Préstamos", align: "right" as const },
+          { key: "costo_total", label: "Costo Total", align: "right" as const },
+        ],
+        data: rows,
+        totals: {
+          sucursal: "TOTAL EMPRESA",
+          empleados: sumF("empleados"),
+          salario_base: sumF("salario_base"),
+          extras: sumF("extras"),
+          devengado: sumF("devengado"),
+          deducciones: sumF("deducciones"),
+          neto: sumF("neto"),
+          patronal: sumF("patronal"),
+          prestamos: sumF("prestamos"),
+          costo_total: sumF("costo_total"),
+        },
+        periodo: q ? `${formatDate(q.periodo_inicio)} - ${formatDate(q.periodo_fin)}` : "",
+        subtitle: "Dashboard de Costos Laborales por Sucursal",
       };
     }
 

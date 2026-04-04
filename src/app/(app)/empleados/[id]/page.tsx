@@ -17,7 +17,7 @@ export default async function EmpleadoPage({ params, searchParams }: PageProps) 
   // Fetch empleado
   const { data: empleado, error } = await supabase
     .from("empleados")
-    .select("*")
+    .select("*, sucursal:sucursales(*)")
     .eq("id", id)
     .single();
 

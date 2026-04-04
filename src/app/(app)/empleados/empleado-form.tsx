@@ -19,19 +19,20 @@ export function EmpleadoForm({ empleado }: EmpleadoFormProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [departamentos, setDepartamentos] = useState<string[]>([]);
+  const [sucursales, setSucursales] = useState<{ id: string; nombre: string }[]>([]);
   const isEdit = !!empleado;
 
   useEffect(() => {
-    async function loadDepartamentos() {
+    async function loadDropdowns() {
       const supabase = createClient();
-      const { data } = await supabase
-        .from("departamentos")
-        .select("nombre")
-        .eq("activo", true)
-        .order("nombre");
-      setDepartamentos((data || []).map((d) => d.nombre));
+      const [dRes, sRes] = await Promise.all([
+        supabase.from("departamentos").select("nombre").eq("activo", true).order("nombre"),
+        supabase.from("sucursales").select("id, nombre").eq("activo", true).order("nombre"),
+      ]);
+      setDepartamentos((dRes.data || []).map((d) => d.nombre));
+      setSucursales(sRes.data || []);
     }
-    loadDepartamentos();
+    loadDropdowns();
   }, []);
 
   const {
@@ -54,6 +55,7 @@ export function EmpleadoForm({ empleado }: EmpleadoFormProps) {
           fecha_ingreso: empleado.fecha_ingreso,
           cargo: empleado.cargo || "",
           departamento: empleado.departamento || "",
+          sucursal_id: empleado.sucursal_id || "",
           tipo_contrato: empleado.tipo_contrato,
           periodo_prueba_fin: empleado.periodo_prueba_fin || "",
           sueldo_quincenal: empleado.sueldo_quincenal,
@@ -73,6 +75,7 @@ export function EmpleadoForm({ empleado }: EmpleadoFormProps) {
           fecha_ingreso: "",
           cargo: "",
           departamento: "",
+          sucursal_id: "",
           tipo_contrato: "indeterminado",
           periodo_prueba_fin: "",
           sueldo_quincenal: 0,
@@ -322,6 +325,21 @@ export function EmpleadoForm({ empleado }: EmpleadoFormProps) {
                       ))}
                     </select>
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Sucursal
+                  </label>
+                  <select
+                    {...register("sucursal_id")}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  >
+                    <option value="">Seleccionar sucursal...</option>
+                    {sucursales.map((s) => (
+                      <option key={s.id} value={s.id}>{s.nombre}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">

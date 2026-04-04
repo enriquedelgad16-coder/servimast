@@ -23,11 +23,13 @@ import {
   Receipt,
   Save,
   Gift,
+  Upload,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { generatePayslipPDF } from "@/lib/pdf-utils";
 import { formatCedula } from "@/lib/utils";
 import type { Quincena, NominaItem, Empleado } from "@/types";
+import { ExcelHorasImport } from "@/components/ui/excel-horas-import";
 
 interface NominaGridProps {
   quincena: Quincena;
@@ -59,6 +61,7 @@ export function NominaGrid({
   const [editingItem, setEditingItem] = useState<string | null>(null);
   const [editData, setEditData] = useState<Record<string, number | string>>({});
   const [savingItem, setSavingItem] = useState(false);
+  const [showHorasImport, setShowHorasImport] = useState(false);
 
   const isBorrador = quincena.estado === "borrador";
 
@@ -140,6 +143,82 @@ export function NominaGrid({
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Error al recalcular");
     } finally { setLoading(false); }
+  }
+
+  async function handleApplyHorasExtras(items: { empleado_id: string; horas_extras_total: number; horas_extras_25: number; horas_extras_35: number; monto_extras_25: number; monto_extras_35: number; monto_extras_total: number; tiempo_trabajado: number }[]) {
+    const supabase = createClient();
+
+    for (const item of items) {
+      // Find the nomina_item for this employee
+      const nominaItem = nominaItems.find((ni) => ni.empleado_id === item.empleado_id);
+      if (!nominaItem) continue;
+
+      // Get active loans
+      const { data: prestamos } = await supabase
+        .from("prestamos").select("cuota_quincenal, saldo_pendiente")
+        .eq("empleado_id", item.empleado_id).eq("estado", "activo");
+
+      // Apply overtime as horas_extras_diurnas (25% band) and use otros_ingresos for the 35% band extra
+      // The 25% extras map to diurnas, the 35% extras map to nocturnas (since the existing system
+      // uses these categories). We store the raw hour counts.
+      const calc = calcularNomina({
+        horas_base: nominaItem.horas_base,
+        tarifa_hora: nominaItem.tarifa_hora,
+        horas_extras_diurnas: item.horas_extras_25,
+        horas_extras_nocturnas: item.horas_extras_35,
+        horas_extras_feriados: nominaItem.horas_extras_feriados,
+        instalaciones_gpon: nominaItem.instalaciones_gpon,
+        instalaciones_red: nominaItem.instalaciones_red,
+        tarifa_gpon: nominaItem.tarifa_instalacion_gpon,
+        tarifa_red: nominaItem.tarifa_instalacion_red,
+        metas_cumplimiento: nominaItem.metas_cumplimiento,
+        otros_ingresos: nominaItem.otros_ingresos,
+        faltas_dias: nominaItem.faltas_dias,
+        dias_habiles_quincena: quincena.dias_habiles || 11,
+        otros_descuentos: nominaItem.otros_descuentos,
+        prestamos_activos: prestamos || [],
+      });
+
+      await supabase.from("nomina_items").update({
+        horas_extras_diurnas: item.horas_extras_25,
+        horas_extras_nocturnas: item.horas_extras_35,
+        salario_base_calc: calc.salario_base,
+        monto_extras_diurnas: calc.monto_extras_diurnas,
+        monto_extras_nocturnas: calc.monto_extras_nocturnas,
+        monto_extras_feriados: calc.monto_extras_feriados,
+        subtotal_devengado: calc.subtotal_devengado,
+        deduccion_por_faltas: calc.deduccion_faltas,
+        afp_monto: calc.afp_monto,
+        sfs_monto: calc.sfs_monto,
+        isr_monto: calc.isr_monto,
+        deduccion_prestamos: calc.deduccion_prestamos,
+        total_deducciones: calc.total_deducciones,
+        total_neto: calc.total_neto,
+        afp_patronal_monto: calc.afp_patronal,
+        sfs_patronal_monto: calc.sfs_patronal,
+        srl_patronal_monto: calc.srl_patronal,
+        alerta_neto_negativo: calc.alerta_neto_negativo,
+        alerta_limite_descuentos: calc.alerta_limite_descuentos,
+      }).eq("id", nominaItem.id);
+
+      // Save to horas_extras_importadas table
+      await supabase.from("horas_extras_importadas").upsert({
+        quincena_id: quincena.id,
+        empleado_id: item.empleado_id,
+        tiempo_trabajado: item.tiempo_trabajado,
+        horas_regulares: Math.min(item.tiempo_trabajado, 88),
+        horas_extras_total: item.horas_extras_total,
+        horas_extras_25: item.horas_extras_25,
+        horas_extras_35: item.horas_extras_35,
+        monto_extras_25: item.monto_extras_25,
+        monto_extras_35: item.monto_extras_35,
+        monto_extras_total: item.monto_extras_total,
+        archivo_origen: "Excel Import",
+      }, { onConflict: "quincena_id,empleado_id" });
+    }
+
+    setShowHorasImport(false);
+    router.refresh();
   }
 
   async function cambiarEstado(nuevoEstado: string) {
@@ -556,6 +635,11 @@ export function NominaGrid({
           </Link>
 
           {/* Action buttons */}
+          {nominaItems.length > 0 && isBorrador && (
+            <button onClick={() => setShowHorasImport(true)} className="inline-flex items-center gap-1.5 px-3 py-2 bg-violet-50 text-violet-700 rounded-lg text-sm font-medium hover:bg-violet-100 transition-colors">
+              <Upload className="h-4 w-4" /> Importar Horas Excel
+            </button>
+          )}
           {availableEmployees.length > 0 && quincena.estado === "borrador" && (
             <button onClick={addAllEmployees} disabled={loading} className="inline-flex items-center gap-2 bg-cyan-500 hover:bg-cyan-600 text-white font-medium px-4 py-2 rounded-lg transition-colors text-sm disabled:opacity-50">
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
@@ -833,6 +917,16 @@ export function NominaGrid({
       <div className="hidden print:block mt-6 text-center text-xs text-gray-400 border-t border-gray-200 pt-3">
         SERVIMAST JPM - Sistema de Gestión de Nómina | Impreso: {new Date().toLocaleString("es-DO")}
       </div>
+
+      {/* Modal: Import Excel Horas */}
+      {showHorasImport && (
+        <ExcelHorasImport
+          empleados={empleados}
+          quincena={quincena}
+          onApply={handleApplyHorasExtras}
+          onClose={() => setShowHorasImport(false)}
+        />
+      )}
     </div>
   );
 }

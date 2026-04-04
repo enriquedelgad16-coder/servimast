@@ -466,6 +466,7 @@ function TabInformacion({ empleado }: { empleado: Empleado }) {
           />
           <Field label="Cargo" value={empleado.cargo} />
           <Field label="Departamento" value={empleado.departamento} />
+          <Field label="Sucursal" value={empleado.sucursal?.nombre || "—"} />
           <Field
             label="Tipo Contrato"
             value={
