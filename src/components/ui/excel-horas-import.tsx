@@ -9,9 +9,7 @@ import type { Empleado, Quincena } from "@/types";
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const HORAS_REGULARES_QUINCENA = 88;
-const FACTOR_EXTRA_25 = 1.25; // Primeras 2 horas extras diarias
-const FACTOR_EXTRA_35 = 1.35; // Horas extras posteriores
-const MAX_HORAS_25_POR_DIA = 2;
+const RECARGO_EXTRA = 0.25; // 25% de recargo sobre tarifa hora ordinaria
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -105,8 +103,7 @@ function matchEmpleado(
 
 function calcularHorasExtras(
   tiempoTrabajado: number,
-  tarifaHora: number,
-  diasHabiles: number
+  tarifaHora: number
 ): {
   horas_extras_total: number;
   horas_extras_25: number;
@@ -128,24 +125,20 @@ function calcularHorasExtras(
     };
   }
 
-  // Distribución: primeras 2 horas extras por día hábil van al 25%, el resto al 35%
-  const maxHoras25 = diasHabiles * MAX_HORAS_25_POR_DIA;
-  const horas25 = Math.min(horasExtrasTotal, maxHoras25);
-  const horas35 = Math.max(0, horasExtrasTotal - maxHoras25);
-
-  // Cálculo de montos:
-  // 25% sobre salario ordinario = tarifa_hora × 1.25
-  // 35% sobre salario ordinario = tarifa_hora × 1.35
-  const monto25 = Math.round(horas25 * tarifaHora * FACTOR_EXTRA_25 * 100) / 100;
-  const monto35 = Math.round(horas35 * tarifaHora * FACTOR_EXTRA_35 * 100) / 100;
+  // Todas las horas extras al 25% de recargo:
+  // Pago por hora extra = tarifa_hora_ordinaria + (tarifa_hora_ordinaria × 25%)
+  //                     = tarifa_hora_ordinaria × 1.25
+  // Como el Excel solo da total de horas quincenales (sin desglose diario),
+  // todas las horas extras se calculan con recargo del 25%.
+  const montoExtras = Math.round(horasExtrasTotal * tarifaHora * (1 + RECARGO_EXTRA) * 100) / 100;
 
   return {
     horas_extras_total: horasExtrasTotal,
-    horas_extras_25: horas25,
-    horas_extras_35: horas35,
-    monto_extras_25: monto25,
-    monto_extras_35: monto35,
-    monto_extras_total: Math.round((monto25 + monto35) * 100) / 100,
+    horas_extras_25: horasExtrasTotal,
+    horas_extras_35: 0,
+    monto_extras_25: montoExtras,
+    monto_extras_35: 0,
+    monto_extras_total: montoExtras,
   };
 }
 
@@ -221,8 +214,6 @@ export function ExcelHorasImport({
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
-  const diasHabiles = quincena.dias_habiles || 11;
-
   const processFile = useCallback(
     (file: File) => {
       setError(null);
@@ -247,7 +238,7 @@ export function ExcelHorasImport({
             const sueldo = empleado?.sueldo_quincenal || 0;
             const tiempo = row.tiempo_trabajado || 0;
 
-            const extras = calcularHorasExtras(tiempo, tarifa, diasHabiles);
+            const extras = calcularHorasExtras(tiempo, tarifa);
 
             return {
               empleado_id: empleado?.id || "",
@@ -273,7 +264,7 @@ export function ExcelHorasImport({
       };
       reader.readAsArrayBuffer(file);
     },
-    [empleados, diasHabiles]
+    [empleados]
   );
 
   const handleDrop = useCallback(
@@ -330,7 +321,7 @@ export function ExcelHorasImport({
               </h2>
               <p className="text-sm text-gray-500">
                 Quincena: {quincena.periodo_inicio} — {quincena.periodo_fin}
-                {" | "}Límite regular: {HORAS_REGULARES_QUINCENA}h | Días hábiles: {diasHabiles}
+                {" | "}Límite regular: {HORAS_REGULARES_QUINCENA}h | Recargo: {RECARGO_EXTRA * 100}%
               </p>
             </div>
           </div>
@@ -362,8 +353,7 @@ export function ExcelHorasImport({
                 </ul>
                 <p className="mt-3 text-blue-700">
                   <strong>Cálculo automático:</strong> A partir de la hora 89, se calculan horas extras.
-                  Primeras 2h/día al 25% ({formatCurrency(0)} + 25% sobre tarifa hora).
-                  Horas adicionales al 35% sobre tarifa hora.
+                  Cada hora extra = tarifa hora ordinaria + 25% de recargo (tarifa × 1.25).
                 </p>
               </div>
 
@@ -451,12 +441,9 @@ export function ExcelHorasImport({
                       <th className="text-right px-3 py-2.5 font-medium text-gray-500">Tarifa/h</th>
                       <th className="text-right px-3 py-2.5 font-medium text-gray-500">Tiempo Trab.</th>
                       <th className="text-right px-3 py-2.5 font-medium text-gray-500">H. Regulares</th>
-                      <th className="text-right px-3 py-2.5 font-medium text-gray-500">H. Extra Total</th>
-                      <th className="text-right px-3 py-2.5 font-medium text-gray-500">H. al 25%</th>
-                      <th className="text-right px-3 py-2.5 font-medium text-gray-500">H. al 35%</th>
-                      <th className="text-right px-3 py-2.5 font-medium text-gray-500">Monto 25%</th>
-                      <th className="text-right px-3 py-2.5 font-medium text-gray-500">Monto 35%</th>
-                      <th className="text-right px-3 py-2.5 font-medium text-gray-500 bg-gray-100">Total Extras</th>
+                      <th className="text-right px-3 py-2.5 font-medium text-gray-500">H. Extras</th>
+                      <th className="text-right px-3 py-2.5 font-medium text-gray-500">Tarifa Extra/h</th>
+                      <th className="text-right px-3 py-2.5 font-medium text-gray-500 bg-gray-100">Monto Extras</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -499,10 +486,11 @@ export function ExcelHorasImport({
                             "0h"
                           )}
                         </td>
-                        <td className="px-3 py-2 text-right font-mono">{r.horas_extras_25}h</td>
-                        <td className="px-3 py-2 text-right font-mono">{r.horas_extras_35}h</td>
-                        <td className="px-3 py-2 text-right font-mono">{formatCurrency(r.monto_extras_25)}</td>
-                        <td className="px-3 py-2 text-right font-mono">{formatCurrency(r.monto_extras_35)}</td>
+                        <td className="px-3 py-2 text-right font-mono text-gray-500">
+                          {r.tarifa_hora > 0
+                            ? formatCurrency(Math.round(r.tarifa_hora * (1 + RECARGO_EXTRA) * 100) / 100)
+                            : "—"}
+                        </td>
                         <td className="px-3 py-2 text-right font-mono font-bold bg-gray-50">
                           {r.monto_extras_total > 0 ? (
                             <span className="text-blue-600">{formatCurrency(r.monto_extras_total)}</span>
@@ -525,18 +513,7 @@ export function ExcelHorasImport({
                       <td className="px-3 py-2 text-right font-mono text-orange-600">
                         {totalHorasExtras.toFixed(1)}h
                       </td>
-                      <td className="px-3 py-2 text-right font-mono">
-                        {results.reduce((s, r) => s + r.horas_extras_25, 0).toFixed(1)}h
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono">
-                        {results.reduce((s, r) => s + r.horas_extras_35, 0).toFixed(1)}h
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono">
-                        {formatCurrency(results.reduce((s, r) => s + r.monto_extras_25, 0))}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono">
-                        {formatCurrency(results.reduce((s, r) => s + r.monto_extras_35, 0))}
-                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-gray-500">—</td>
                       <td className="px-3 py-2 text-right font-mono font-bold text-blue-600 bg-gray-100">
                         {formatCurrency(totalMontoExtras)}
                       </td>
@@ -554,10 +531,7 @@ export function ExcelHorasImport({
                   <span className="w-3 h-3 rounded bg-red-100 border border-red-300" /> No encontrado en sistema
                 </span>
                 <span>
-                  <strong>25%:</strong> Primeras {MAX_HORAS_25_POR_DIA}h extras/día ({diasHabiles} días = máx {diasHabiles * MAX_HORAS_25_POR_DIA}h)
-                </span>
-                <span>
-                  <strong>35%:</strong> Horas extras adicionales
+                  <strong>Recargo 25%:</strong> Cada hora extra = tarifa ordinaria × 1.25
                 </span>
               </div>
             </div>
